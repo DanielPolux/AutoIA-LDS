@@ -1,0 +1,15 @@
+# Este repo versiona SOLO la base reutilizable (_framework) - no los
+# proyectos individuales (PR0000NN/) ni su evidencia generada (videos,
+# capturas, Word), que se recrean corriendo run_all.py sobre cada
+# proyecto. Ver CLAUDE.md para la arquitectura completa.
+/*
+!/_framework/
+!/.gitignore
+!/CLAUDE.md
+!/requirements.txt
+
+# Dentro de _framework: cache/generados/config local, nunca codigo fuente
+**/__pycache__/
+*.pyc
+*.pyo
+_framework/.claude/
