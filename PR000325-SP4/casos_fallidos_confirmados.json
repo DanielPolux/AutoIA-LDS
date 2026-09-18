@@ -1,0 +1,7 @@
+{
+  "CP-060": {
+    "motivo": "El sistema rechaza el registro del banco PAC con el mensaje 'El código ya existe.' pese a que el código lo genera el propio sistema (Banco (Código) autogenerado, solo lectura, MAX(codigo)+1 de la tabla BCOCTA). Se confirmo en vivo que ni reabriendo el modal ni presionando 'Actualizar' (refresco de grilla) antes de reintentar el registro actualiza correctamente el proximo codigo propuesto - el backend sigue rechazando con el mismo mensaje.",
+    "fecha_verificacion": "2026-09-18",
+    "evidencia": "PR000325-SP4/CP-060/CP-060_error.png (dialogo 'El código ya existe.' con los campos completos y validos). Reproducido de forma consistente en multiples corridas independientes del mismo caso durante la sesion del 18/09/2026."
+  }
+}

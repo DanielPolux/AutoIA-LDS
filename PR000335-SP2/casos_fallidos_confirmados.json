@@ -1,0 +1,33 @@
+{
+  "_comentario": "Casos con resultado NO OK que fueron VERIFICADOS A MANO / con evidencia de red-consola contra la app real (no son bugs del script de automatizacion). Estado FALLIDO = listo para reportar a Desarrollo. generar_reporte_excel.py cruza este archivo con el CSV de la corrida para pintar la 3ra columna en el Excel consolidado.",
+  "CP067": {
+    "motivo": "Guardar en Modificar rechazado por el backend con 400 Acceso Denegado (POST ModificarAtencionCliente); el frontend no muestra ningun mensaje de error, el formulario queda en blanco silenciosamente.",
+    "fecha_verificacion": "2026-09-14",
+    "evidencia": "_exploracion/network_log_cp066.txt, _exploracion/cp093_02_despues_aceptar.png"
+  },
+  "CP068": {
+    "motivo": "En modo Consultar hay campos editables que no deberian serlo; si se edita alguno, dispara el mismo guardado silencioso rechazado (ver CP067).",
+    "fecha_verificacion": "2026-09-14",
+    "evidencia": "_exploracion/network_log_cp066.txt"
+  },
+  "CP069": {
+    "motivo": "Mismo defecto de guardado que CP067 (no se pudo aislar la regla de negocio especifica 'modulo ajeno al MAC' del defecto general).",
+    "fecha_verificacion": "2026-09-14",
+    "evidencia": "_exploracion/network_log_cp066.txt"
+  },
+  "CP070": {
+    "motivo": "Mismo defecto de guardado que CP067 (no se pudo aislar la regla de negocio especifica 'Tipo Pedido Alumbrado Publico' del defecto general).",
+    "fecha_verificacion": "2026-09-14",
+    "evidencia": "_exploracion/network_log_cp066.txt"
+  },
+  "CP090": {
+    "motivo": "No aparece ningun mensaje (ni de validacion ni de error) al intentar guardar - mismo defecto de guardado silencioso que CP067.",
+    "fecha_verificacion": "2026-09-14",
+    "evidencia": "_exploracion/network_log_cp066.txt"
+  },
+  "CP093": {
+    "motivo": "Mismo defecto de guardado que CP067 (guardar cambios de una atencion modificada).",
+    "fecha_verificacion": "2026-09-14",
+    "evidencia": "_exploracion/network_log_cp066.txt"
+  }
+}

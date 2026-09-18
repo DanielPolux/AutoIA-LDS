@@ -83,11 +83,21 @@ PREFIJO = DIR.name
 
 
 def numero_cp(cp: str) -> int:
-    """Extrae la parte numerica de un codigo CPxxx para poder ordenar/
-    filtrar por rango - algunos proyectos tienen sufijos no numericos
-    (ej. "CP045-A", "CP045-B"), asi que se toma solo el prefijo de
-    digitos en vez de convertir cp[2:] entero a int()."""
-    return int(re.match(r"\d+", cp[2:]).group())
+    """Extrae la parte numerica de un codigo CP para poder ordenar/
+    filtrar por rango. El formato del ID NO es uniforme entre proyectos -
+    la mayoria usa "CP001" (digitos pegados), pero algunas matrices Excel
+    traen su propia columna "#CP" ya separada con guion, ej. "CP-001"
+    (confirmado en vivo, PR000325-SP4: cp[2:] daba "-001", que
+    re.match(r"\\d+", ...) no matcheaba - AttributeError: 'NoneType'
+    object has no attribute 'group'). Se busca el primer bloque de
+    digitos en cualquier parte del string en vez de asumir que arranca
+    justo en el indice 2, para cubrir ambos formatos (y el caso de
+    sufijos no numericos tipo "CP045-A", que tambien deben ordenar por
+    su parte numerica 45)."""
+    m = re.search(r"\d+", cp)
+    if not m:
+        raise ValueError(f"El codigo de caso {cp!r} no tiene ninguna parte numerica.")
+    return int(m.group())
 
 
 METADATA = {c["cp"]: c for c in CASES}
