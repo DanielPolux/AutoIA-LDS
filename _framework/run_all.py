@@ -35,7 +35,7 @@ Uso:
     # Todos, grabando ademas el video de cada uno (.webm):
     .venv\\Scripts\\python.exe automation\\PR0000NN\\run_all.py --video
 
-    # --slowmo ya viene en 2000ms por defecto (para que el video se vea
+    # --slowmo ya viene en 2500ms por defecto (para que el video se vea
     # bien sin correr de golpe) - bajarlo si hace falta mas velocidad:
     .venv\\Scripts\\python.exe automation\\PR0000NN\\run_all.py --video --slowmo 500
 
@@ -44,6 +44,9 @@ Uso:
 
     # Solo algunos puntuales:
     .venv\\Scripts\\python.exe automation\\PR0000NN\\run_all.py --solo CP001,CP012,CP030
+
+    # Solo uno o mas RF (ignora --desde/--hasta; si tambien se pasa --solo, --solo gana):
+    .venv\\Scripts\\python.exe automation\\PR0000NN\\run_all.py --rf RF-05,RF-06
 
     # En paralelo (4 navegadores a la vez; ojo con la maquina/red):
     .venv\\Scripts\\python.exe automation\\PR0000NN\\run_all.py --workers 4
@@ -111,9 +114,10 @@ def parse_args():
     p.add_argument("--desde", default=CP_MIN, help=f"Primer CP a correr (default: {CP_MIN})")
     p.add_argument("--hasta", default=CP_MAX, help=f"Ultimo CP a correr (default: {CP_MAX})")
     p.add_argument("--solo", default=None, help="Lista puntual separada por comas, ej: CP001,CP012,CP030 (ignora --desde/--hasta)")
+    p.add_argument("--rf", default=None, help="Lista de RF separados por coma, ej: RF-05,RF-06 (ignora --desde/--hasta; si tambien se pasa --solo, --solo gana)")
     p.add_argument("--headed", action="store_true", help="Mostrar el navegador (por defecto corre headless para que la tanda sea mas rapida/estable)")
     p.add_argument("--video", action="store_true", help="Grabar el video (.webm) de cada caso, ademas de las capturas (apagado por defecto: pesa/tarda mas en una tanda grande)")
-    p.add_argument("--slowmo", type=int, default=2000, help="Pausa en ms entre cada accion de Playwright (util con --video para que se note el llenado de campos; default: 2000, para que el video se vea bien sin correr de golpe - usar 0 para maxima velocidad sin video)")
+    p.add_argument("--slowmo", type=int, default=2500, help="Pausa en ms entre cada accion de Playwright (util con --video para que se note el llenado de campos; default: 2500, para que el video se vea bien sin correr de golpe - usar 0 para maxima velocidad sin video)")
     p.add_argument("--workers", type=int, default=1, help="Cuantos CP correr en paralelo (default: 1 = secuencial)")
     p.add_argument("--timeout", type=int, default=180, help="Segundos maximos por CP antes de marcarlo como TIMEOUT (default: 180; subir si algun caso espera un timeout real del backend)")
     p.add_argument("--sin-word", action="store_true", help="Que cada CP NO genere su .docx de evidencia (por defecto SI lo genera cada uno solo)")
@@ -128,6 +132,13 @@ def seleccionar_casos(args):
         if faltantes:
             raise SystemExit(f"CP desconocidos en --solo: {faltantes}")
         return pedidos
+    if args.rf:
+        pedidos = [r.strip().upper() for r in args.rf.split(",") if r.strip()]
+        rfs_existentes = {v["rf"].upper() for v in METADATA.values()}
+        faltantes = [r for r in pedidos if r not in rfs_existentes]
+        if faltantes:
+            raise SystemExit(f"RF desconocidos en --rf: {faltantes}")
+        return [c for c in todos if METADATA[c]["rf"].upper() in pedidos]
     ini, fin = numero_cp(args.desde), numero_cp(args.hasta)
     return [c for c in todos if ini <= numero_cp(c) <= fin]
 
@@ -192,6 +203,11 @@ def correr_uno(cp, headless, video, word, slowmo, timeout):
 
 
 def main():
+    if not METADATA:
+        raise SystemExit(
+            "generate_scripts.py todavia no genero ningun caso (CASES vacio) - "
+            "completar el Paso 3 del checklist (escribir los casos) antes de ejecutar pruebas."
+        )
     args = parse_args()
     casos = seleccionar_casos(args)
     headless = not args.headed

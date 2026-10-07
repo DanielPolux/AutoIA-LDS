@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Automatización LDS</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>Automatización de Pruebas — Web LDS</h1>
+  <nav class="tabs">
+    <button class="tab-btn" data-vista="nuevo" type="button">Nuevo proyecto</button>
+    <button class="tab-btn" data-vista="ejecutar" type="button">Ejecutar pruebas</button>
+    <button class="tab-btn" data-vista="reporte" type="button">Reporte</button>
+  </nav>
+</header>
+
+<main>
+
+  <!-- Vista: Nuevo proyecto -->
+  <section id="vista-nuevo" class="vista">
+    <h2>Subir documentos y analizar</h2>
+    <form id="form-analizar">
+      <label>
+        Código de proyecto
+        <input type="text" name="proyecto" placeholder="PR000456 o PR000456-SP1" required pattern="PR\d{6}(-SP\d+)?">
+      </label>
+      <label>
+        Matriz de casos (Excel) <span class="req">*</span>
+        <input type="file" name="excel" accept=".xlsx" required>
+      </label>
+      <label>
+        Especificación Funcional (Word, opcional)
+        <input type="file" name="ef" accept=".docx">
+      </label>
+      <label>
+        Diseño Técnico (Word, opcional)
+        <input type="file" name="et" accept=".docx">
+      </label>
+      <button type="submit">Analizar</button>
+    </form>
+
+    <div id="analizar-estado" class="caja-estado oculto">
+      <p><strong>Fase:</strong> <span id="analizar-fase">—</span></p>
+      <p id="analizar-mensaje"></p>
+      <div id="analizar-prompt-box" class="oculto">
+        <p>El CLI de Claude Code no está instalado en esta máquina — pegá este prompt en una sesión interactiva, en la carpeta del proyecto:</p>
+        <textarea id="analizar-prompt-texto" readonly rows="12"></textarea>
+        <button id="analizar-copiar" type="button">Copiar al portapapeles</button>
+      </div>
+      <pre id="analizar-log" class="log"></pre>
+    </div>
+  </section>
+
+  <!-- Vista: Ejecutar pruebas -->
+  <section id="vista-ejecutar" class="vista oculto">
+    <h2>Ejecutar pruebas por RF</h2>
+    <label>
+      Proyecto
+      <select id="ejecutar-proyecto"></select>
+    </label>
+    <div id="ejecutar-rf-lista" class="rf-lista"></div>
+    <label class="checkbox-line">
+      <input type="checkbox" id="ejecutar-video" checked>
+      Grabar video
+    </label>
+    <button id="ejecutar-boton" type="button">Ejecutar pruebas</button>
+
+    <div id="ejecutar-estado" class="caja-estado oculto">
+      <p><strong>Fase:</strong> <span id="ejecutar-fase">—</span></p>
+      <p id="ejecutar-mensaje"></p>
+      <div id="ejecutar-progreso-box" class="oculto">
+        <progress id="ejecutar-progreso" max="1" value="0"></progress>
+        <span id="ejecutar-progreso-texto"></span>
+      </div>
+      <pre id="ejecutar-log" class="log"></pre>
+    </div>
+  </section>
+
+  <!-- Vista: Reporte -->
+  <section id="vista-reporte" class="vista oculto">
+    <h2>Reporte consolidado</h2>
+    <label>
+      Proyecto
+      <select id="reporte-proyecto"></select>
+    </label>
+    <button id="reporte-boton" type="button">Ver reporte</button>
+
+    <div id="reporte-contenido"></div>
+  </section>
+
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

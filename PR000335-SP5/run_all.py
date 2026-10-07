@@ -86,7 +86,7 @@ def parse_args():
     p.add_argument("--solo", default=None, help="Lista puntual separada por comas, ej: CP001,CP012,CP030 (ignora --desde/--hasta)")
     p.add_argument("--headed", action="store_true", help="Mostrar el navegador (por defecto corre headless para que la tanda sea mas rapida/estable)")
     p.add_argument("--video", action="store_true", help="Grabar el video (.webm) de cada caso, ademas de las capturas (apagado por defecto: pesa/tarda mas en una tanda grande)")
-    p.add_argument("--slowmo", type=int, default=0, help="Pausa en ms entre cada accion de Playwright (util con --video para que se note el llenado de campos; default: 0 = sin pausa)")
+    p.add_argument("--slowmo", type=int, default=2500, help="Pausa en ms entre cada accion de Playwright (util con --video para que se note el llenado de campos; default: 2500, para que el video se vea bien sin correr de golpe - usar 0 para maxima velocidad sin video)")
     p.add_argument("--workers", type=int, default=1, help="Cuantos CP correr en paralelo (default: 1 = secuencial)")
     p.add_argument("--timeout", type=int, default=180, help="Segundos maximos por CP antes de marcarlo como TIMEOUT (default: 180; subir si algun caso espera un timeout real del backend)")
     p.add_argument("--sin-word", action="store_true", help="Que cada CP NO genere su .docx de evidencia (por defecto SI lo genera cada uno solo)")

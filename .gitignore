@@ -26,3 +26,7 @@ PR*/*
 *.pyc
 *.pyo
 _framework/.claude/
+
+# Webapp local (_framework/webapp/): staging de archivos subidos por el
+# usuario via la pagina, runtime-only, nunca codigo fuente.
+_framework/webapp/_uploads/

@@ -1,0 +1,67 @@
+{
+  "CP032": {
+    "motivo": "Falta dato de prueba: cliente con al menos 4 facturas anulables. Se probaron 8 numeros de cliente reales (Retirado/Cobranza Externa, de suministros.txt) y ninguno tiene facturas anulables ('Sin facturas anulables' siempre). La matriz no trae un INSERT para este caso.",
+    "fecha_verificacion": "2026-09-26",
+    "evidencia": "PR000349-SP1 RF-06, sesion de exploracion en vivo (8 clientes reales probados)"
+  },
+  "CP033": {
+    "motivo": "Depende de CP032 (necesita una refacturacion previamente generada para poder revertirla). Bloqueado por la misma falta de dato que CP032.",
+    "fecha_verificacion": "2026-09-26",
+    "evidencia": "PR000349-SP1 RF-06, mismo hallazgo que CP032"
+  },
+  "CP035": {
+    "motivo": "Falta dato de prueba: factura antigua anulable cuya tasa de IGV historica sea distinta a la vigente actualmente. No se encontro ni genero una factura con esa condicion en el ambiente de Pruebas.",
+    "fecha_verificacion": "2026-09-26",
+    "evidencia": "PR000349-SP1 RF-06, sesion de exploracion en vivo"
+  },
+  "CP036": {
+    "motivo": "Falta dato de prueba: factura anulable con consumo fisico registrado hace mas de 12 meses. No se encontro ni genero una factura con esa condicion en el ambiente de Pruebas.",
+    "fecha_verificacion": "2026-09-26",
+    "evidencia": "PR000349-SP1 RF-06, sesion de exploracion en vivo"
+  },
+  "CP044": {
+    "motivo": "El INSERT de la matriz en la tabla conve (cliente 1259207, corr_convenio=1, estado='V') se corrio SIN error, pero 'Vigentes' con la fecha de hoy sigue mostrando 'No existen registros para el requerimiento.' - a diferencia de CP045 (mismo cliente, estado='C'), que si aparecio de inmediato con el mismo tipo de INSERT. Causa raiz no confirmada: podria faltar la columna real ind_caduca (ausente del INSERT de la matriz) o requerir saldo_origen/deuda_convenida > 0 para calificar como 'vigente'.",
+    "fecha_verificacion": "2026-09-26",
+    "evidencia": "PR000349-SP1 RF-08, explore_56_rf08_datos_insertados.py"
+  },
+  "CP050": {
+    "motivo": "Falta INSERT de datos en la tabla fac_cli (cliente 1259207, facilidad Vigente). La matriz trae el INSERT (validado en Desarrollo 17/09/2026) pero no se corrio - ademas, verificar el esquema real de fac_cli primero (SELECT * FROM fac_cli WHERE 1=0), ya que el INSERT analogo de RF-08 (tabla conve) tenia columnas que no existen en el esquema real de este ambiente.",
+    "fecha_verificacion": "2026-09-26",
+    "evidencia": "PR000349-SP1 RF-09, pantalla real confirmada funcionando (sin CORS), solo falta el dato"
+  },
+  "CP051": {
+    "motivo": "Falta INSERT de datos en la tabla fac_cli (clientes 4 y 2292893, facilidad Cancelada/Revocada). Mismo criterio que CP050.",
+    "fecha_verificacion": "2026-09-26",
+    "evidencia": "PR000349-SP1 RF-09, mismo hallazgo que CP050"
+  },
+  "CP055": {
+    "motivo": "Reutiliza el dato de CP050 o CP051 (ambos bloqueados) para tener un filtro con resultados y verificar el formato de descarga XLSX.",
+    "fecha_verificacion": "2026-09-26",
+    "evidencia": "PR000349-SP1 RF-09, depende de CP050/CP051"
+  },
+  "CP069": {
+    "motivo": "La tabla de logs del DWH (etl_log_carga_cli) esta completamente vacia en el ambiente de Pruebas - confirmado probando los 12 procesos disponibles con un rango de fechas de 11 anios (2015-2026), la API ConsultarLogCarga siempre devolvio []. No hay INSERT provisto en la matriz para este caso.",
+    "fecha_verificacion": "2026-09-26",
+    "evidencia": "PR000349-SP1 RF-12, explore_50..52_rf12_*.py"
+  },
+  "CP070": {
+    "motivo": "Misma tabla de logs vacia que CP069 - necesita al menos 1 registro real para verificar el filtrado.",
+    "fecha_verificacion": "2026-09-26",
+    "evidencia": "PR000349-SP1 RF-12, mismo hallazgo que CP069"
+  },
+  "CP071": {
+    "motivo": "Necesita un registro de log CON etapas asociadas en etl_log_etapa_cli - la tabla esta vacia, no hay ningun registro que tenga ni pueda tener etapas.",
+    "fecha_verificacion": "2026-09-26",
+    "evidencia": "PR000349-SP1 RF-12, mismo hallazgo que CP069"
+  },
+  "CP073": {
+    "motivo": "Necesita 2 o mas registros de log con fechas distintas para verificar el orden descendente - la tabla esta vacia.",
+    "fecha_verificacion": "2026-09-26",
+    "evidencia": "PR000349-SP1 RF-12, mismo hallazgo que CP069"
+  },
+  "CP074": {
+    "motivo": "Necesita un registro de log SIN etapas asociadas. La matriz SI trae el INSERT exacto para etl_log_carga_cli (elegir un numero_log no usado y no insertar nada en etl_log_etapa_cli para ese numero), pero no se corrio.",
+    "fecha_verificacion": "2026-09-26",
+    "evidencia": "PR000349-SP1 RF-12, INSERT disponible en columna 'datos' de CP074 en matriz_casos.json"
+  }
+}

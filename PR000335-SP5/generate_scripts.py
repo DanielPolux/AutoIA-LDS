@@ -260,7 +260,7 @@ def abrir_modal_rhd(frame, nombre_boton):
     (app-modal-opciones-rhd), titulo "Agregar Registro"/"Modificar
     Registro"/"Eliminar Registro" segun el boton."""
     frame.get_by_role("button", name=nombre_boton, exact=True).click()
-    dialogo = frame.get_by_role("dialog")
+    dialogo = frame.get_by_role("dialog").last
     dialogo.wait_for(state="visible", timeout=8000)
     return dialogo
 
@@ -278,6 +278,23 @@ def completar_modal_rhd(dialogo, clase=None, tension=None, usuario=None, respons
             checkbox.check()
         else:
             checkbox.uncheck()
+
+
+def cerrar_dialogo_rhd(frame, app, timeout_ms=8000):
+    """Cierra el dialogo "Proceso" (resultado de Agregar/Modificar/
+    Eliminar en Asignacion RHD) pulsando su boton Aceptar. GOTCHA REAL
+    confirmado en vivo el 22/09/2026: el patron
+    `mensaje.first.locator("..").get_by_role("button", ...)` es fragil
+    - el boton Aceptar NO es hijo del mismo contenedor padre inmediato
+    del texto del mensaje (esta en una seccion/footer distinta del
+    dialogo), asi que subir un solo nivel con ".." nunca lo encuentra y
+    termina en timeout. Se usa el dialogo COMPLETO (mismo patron ya
+    validado en cerrar_modal_pi de RF-03) en vez de intentar acotar por
+    el texto."""
+    dialogo = frame.get_by_role("dialog").last
+    dialogo.wait_for(state="visible", timeout=timeout_ms)
+    dialogo.get_by_role("button", name=re.compile("Aceptar")).click(timeout=timeout_ms)
+    app.wait_for_timeout(600)
 '''
 
 
@@ -377,16 +394,19 @@ def main():
             browser.close()
             ruta_portal = _renombrar_video(video_portal, EVIDENCIA / f"{{CASO}}-1.webm") if video_portal is not None else None
             ruta_app = _renombrar_video(video_app, EVIDENCIA / f"{{CASO}}-2.webm") if video_app is not None else None
-            if ruta_portal and ruta_app:
-                _unir_videos(ruta_portal, ruta_app, EVIDENCIA / f"{{CASO}}_video.webm")
-            elif ruta_portal:
+            rutas_videos = [r for r in (ruta_portal, ruta_app) if r is not None]
+            # BUG REAL confirmado en vivo 22/09/2026: casos con descarga
+            # real (app.expect_download(), ej. boton "Exportar") a veces
+            # dejan una pestana efimera adicional grabada por Playwright
+            # que nunca queda referenciada por `page`/`app` - se barre
+            # cualquier page@*.webm huerfano en EVIDENCIA y se suma al
+            # video final en vez de dejarlo suelto.
+            rutas_videos.extend(p for p in sorted(EVIDENCIA.glob("page@*.webm")) if p not in rutas_videos)
+            if len(rutas_videos) > 1:
+                _unir_videos(EVIDENCIA / f"{{CASO}}_video.webm", *rutas_videos)
+            elif len(rutas_videos) == 1:
                 try:
-                    ruta_portal.replace(EVIDENCIA / f"{{CASO}}_video.webm")
-                except (PermissionError, OSError) as e:
-                    print(f"  (aviso) no se pudo renombrar el video final: {{e}}")
-            elif ruta_app:
-                try:
-                    ruta_app.replace(EVIDENCIA / f"{{CASO}}_video.webm")
+                    rutas_videos[0].replace(EVIDENCIA / f"{{CASO}}_video.webm")
                 except (PermissionError, OSError) as e:
                     print(f"  (aviso) no se pudo renombrar el video final: {{e}}")
             if GRABAR_WORD:
@@ -1090,36 +1110,353 @@ capturar_paso(app, "resultado_verificado", paso_excel=7)
 ''')
 
 add("CP036", "abrir_asignacion_rhd", '''
-# DEFECTO REAL CONFIRMADO EN VIVO (15 y 17/09/2026, ver
-# _exploracion/explore_rhd_red.py y recheck_rhd_agregar.py): al
-# completar el modal "Agregar Registro" y presionar Aceptar, el backend
-# responde 400 en POST .../api/asignacion-rhd/agregar-usuario-rhd.
-# CORRECCION (17/09/2026): el frontend SI muestra algo - un dialogo
-# generico "Proceso" con el texto crudo del error HTTP ("Acceso
-# denegado. StatusCode: BadRequest, Error: Response status code does
-# not indicate success: 400 (Bad Request)."), no un mensaje de
-# validacion pensado para el usuario. Confirmado reproducible con 2
-# usuarios de "Rol Usuario" distintos (uno ficticio, uno real) - no es
-# un problema del dato enviado, sugiere que el usuario logueado
-# (DCABA_DW) no tiene permiso de escritura en este endpoint puntual.
+# RESUELTO (22/09/2026): el 400 "Acceso denegado" del backend era falta
+# de permiso de escritura de la cuenta de pruebas para el modulo MAC -
+# ya se corrigio (confirmado en vivo, junto con el mismo fix aplicado en
+# PR000325-SP6). Usa un usuario dinamico (no "DCABA_DW" fijo) porque la
+# combinacion usuario+clase+tension ya quedo registrada en una corrida
+# anterior - reusar el mismo usuario fijo dispara "Usuario ya se
+# encuentra registrado." (ver CP038) en vez de un alta nueva.
+usuario_nuevo = f"QA{random.randint(10000, 99999)}"
 dialogo = abrir_modal_rhd(frame, "Agregar")
 capturar_paso(app, "modal_agregar_abierto", paso_excel=4)
-completar_modal_rhd(dialogo, clase="F1 - Por interrupción de servicio", tension="BT", usuario="DCABA_DW")
+completar_modal_rhd(dialogo, clase="F1 - Por interrupción de servicio", tension="BT", usuario=usuario_nuevo)
 capturar_paso(app, "formulario_completado", paso_excel=5)
 dialogo.get_by_role("button", name="Aceptar").click()
 app.wait_for_timeout(3000)
 capturar_paso(app, "despues_de_aceptar", paso_excel=6)
 mensaje_exito = frame.get_by_text(re.compile("se agrego correctamente", re.IGNORECASE))
-assert mensaje_exito.count() > 0 and mensaje_exito.first.is_visible(), "DEFECTO REAL CONFIRMADO EN VIVO: el backend rechaza el Agregar con 400 'Acceso denegado' (POST agregar-usuario-rhd) - el frontend muestra un dialogo generico de error HTTP crudo en vez del mensaje de exito esperado. Posible falta de permiso de escritura del usuario de pruebas en este endpoint - Rechazado para revision (ver _exploracion/recheck_rhd_agregar.py)."
+assert mensaje_exito.count() > 0 and mensaje_exito.first.is_visible(), f"Se esperaba el mensaje de alta exitosa para el usuario {usuario_nuevo!r}, no aparecio"
+fila_nueva = frame.get_by_text(usuario_nuevo)
+assert fila_nueva.count() > 0, f"El usuario {usuario_nuevo!r} deberia aparecer en el listado tras agregarlo"
+capturar_paso(app, "usuario_en_listado", paso_excel=7)
 ''')
 
-# CONFIRMADO EN VIVO el 17/09/2026: de los 17 casos de RF-02, 14
-# dependen de que "Agregar" funcione (4 directos: CP037-039 repiten el
-# mismo flujo bloqueado que CP036; 10 indirectos: CP033/034/035/041-043/
-# 045-047/049 necesitan al menos 1 registro YA existente, y hoy no hay
-# ninguno). Los 3 que NO dependen de eso se escriben abajo; el resto
-# queda pendiente hasta que se resuelva el permiso de escritura (ver
-# CP036) o se consiga otro usuario de prueba con el permiso correcto.
+# RESUELTO 22/09/2026: el permiso de escritura ya funciona (ver CP036).
+# Datos reales confirmados en vivo en el listado (persisten entre
+# corridas, NO se tocan en los casos de solo lectura de abajo):
+#   OPOL      | F1 - Por interrupción de servicio | BT | (responsable)
+#   DCABA_DW  | F1 - Por interrupción de servicio | BT | daniel.cabanillas@dlwlatam.com (no responsable)
+# Confirmado en vivo: click en una fila la marca (class="selected");
+# el modal "Modificar Registro" tiene los mismos 4 campos que "Agregar"
+# (Clase/Nivel Tension/Rol Usuario/Asignar Responsable), con Rol Usuario
+# SIEMPRE deshabilitado y el checkbox llegando ya marcado/desmarcado
+# segun el registro. El modal "Eliminar Registro" muestra los mismos 4
+# campos, TODOS deshabilitados, con Aceptar/Cancelar (el texto de
+# confirmacion "¿Esta seguro...?" de la matriz, si existe, aparece
+# recien en un 2do dialogo tras Aceptar aqui - no confirmado en la
+# exploracion visual, se valida al correr CP046).
+# Los casos de Modificar/Eliminar REALES usan un usuario QA temporal
+# propio (nunca OPOL/DCABA_DW) para no alterar los datos reales
+# reusados por los casos de solo lectura.
+
+add("CP034", "abrir_asignacion_rhd", '''
+frame.locator("#rhd-clase").select_option(label="F1 - Por interrupción de servicio")
+frame.get_by_role("button", name="Buscar").click()
+esperar_fin_de_carga(app, frame)
+app.wait_for_timeout(1500)
+capturar_paso(app, "filtro_por_clase", paso_excel=5)
+filas = frame.locator("table tbody tr")
+assert filas.count() > 0, "Se esperaban resultados al filtrar por clase F1"
+for i in range(filas.count()):
+    texto_fila = filas.nth(i).inner_text()
+    assert "F1" in texto_fila, f"La fila {texto_fila!r} no corresponde a la clase filtrada"
+frame.locator("#rhd-tension").select_option(label="BT")
+frame.get_by_role("button", name="Buscar").click()
+esperar_fin_de_carga(app, frame)
+app.wait_for_timeout(1500)
+capturar_paso(app, "filtro_por_clase_y_tension", paso_excel=7)
+filas2 = frame.locator("table tbody tr")
+for i in range(filas2.count()):
+    texto_fila = filas2.nth(i).inner_text()
+    assert "F1" in texto_fila and "BT" in texto_fila, f"La fila {texto_fila!r} no corresponde a la combinacion filtrada"
+''')
+
+add("CP035", "abrir_asignacion_rhd", '''
+frame.get_by_role("button", name="Buscar").click()
+esperar_fin_de_carga(app, frame)
+capturar_paso(app, "listado_cargado", paso_excel=4)
+fila_opol = frame.locator("table tbody tr", has_text="OPOL")
+fila_dcaba = frame.locator("table tbody tr", has_text="DCABA_DW")
+assert fila_opol.count() > 0 and fila_dcaba.count() > 0, "Se esperaban los usuarios de prueba OPOL y DCABA_DW en el listado"
+assert "Responsable" in fila_opol.first.inner_text(), "OPOL deberia mostrar la marca de Responsable"
+assert "Responsable" not in fila_dcaba.first.inner_text(), "DCABA_DW NO deberia mostrar la marca de Responsable"
+capturar_paso(app, "marca_responsable_verificada", paso_excel=5)
+''')
+
+add("CP037", "abrir_asignacion_rhd", '''
+usuario_nuevo = f"QA{random.randint(10000, 99999)}"
+dialogo = abrir_modal_rhd(frame, "Agregar")
+capturar_paso(app, "modal_agregar_abierto", paso_excel=4)
+completar_modal_rhd(dialogo, clase="F1 - Por interrupción de servicio", tension="BT", usuario=usuario_nuevo, responsable=True)
+capturar_paso(app, "formulario_completado_responsable", paso_excel=5)
+dialogo.get_by_role("button", name="Aceptar").click()
+app.wait_for_timeout(3000)
+mensaje_exito = frame.get_by_text(re.compile("se agrego correctamente", re.IGNORECASE))
+assert mensaje_exito.count() > 0 and mensaje_exito.first.is_visible(), f"Se esperaba el mensaje de alta exitosa para {usuario_nuevo!r}"
+capturar_paso(app, "usuario_agregado", paso_excel=6)
+fila_nueva = frame.locator("table tbody tr", has_text=usuario_nuevo)
+assert fila_nueva.count() > 0 and "Responsable" in fila_nueva.first.inner_text(), f"El usuario {usuario_nuevo!r} deberia aparecer marcado como Responsable en el listado"
+capturar_paso(app, "marca_responsable_en_listado", paso_excel=7)
+''')
+
+add("CP038", "abrir_asignacion_rhd", '''
+frame.get_by_role("button", name="Buscar").click()
+esperar_fin_de_carga(app, frame)
+total_antes = frame.get_by_text(re.compile(r"Total registros:")).first.inner_text()
+dialogo = abrir_modal_rhd(frame, "Agregar")
+capturar_paso(app, "modal_agregar_abierto", paso_excel=4)
+completar_modal_rhd(dialogo, clase="F1 - Por interrupción de servicio", tension="BT", usuario="DCABA_DW")
+capturar_paso(app, "usuario_ya_registrado_completado", paso_excel=5)
+dialogo.get_by_role("button", name="Aceptar").click()
+app.wait_for_timeout(2000)
+mensaje = frame.get_by_text(re.compile("usuario ya se encuentra registrado", re.IGNORECASE))
+assert mensaje.count() > 0 and mensaje.first.is_visible(), "Se esperaba el mensaje 'Usuario ya se encuentra registrado.'"
+capturar_paso(app, "mensaje_duplicado", paso_excel=6)
+cerrar_dialogo_rhd(frame, app)
+app.wait_for_timeout(1000)
+frame.get_by_role("button", name="Buscar").click()
+esperar_fin_de_carga(app, frame)
+total_despues = frame.get_by_text(re.compile(r"Total registros:")).first.inner_text()
+assert total_antes == total_despues, f"El total de registros no deberia cambiar ({total_antes!r} vs {total_despues!r})"
+capturar_paso(app, "sin_duplicado_verificado", paso_excel=7)
+''')
+
+add("CP039", "abrir_asignacion_rhd", '''
+usuario_nuevo = f"QA{random.randint(10000, 99999)}"
+dialogo = abrir_modal_rhd(frame, "Agregar")
+completar_modal_rhd(dialogo, clase="F1 - Por interrupción de servicio", tension="BT", usuario=usuario_nuevo)
+capturar_paso(app, "primer_registro_completado", paso_excel=4)
+dialogo.get_by_role("button", name="Aceptar").click()
+app.wait_for_timeout(2500)
+cerrar_dialogo_rhd(frame, app)
+capturar_paso(app, "primer_registro_aceptado")
+dialogo2 = abrir_modal_rhd(frame, "Agregar")
+completar_modal_rhd(dialogo2, clase="F2 - Por deterioro de artefactos", tension="BT", usuario=usuario_nuevo)
+capturar_paso(app, "segundo_registro_otra_clase", paso_excel=5)
+dialogo2.get_by_role("button", name="Aceptar").click()
+app.wait_for_timeout(2500)
+mensaje_exito = frame.get_by_text(re.compile("se agrego correctamente", re.IGNORECASE))
+assert mensaje_exito.count() > 0 and mensaje_exito.first.is_visible(), f"El registro del mismo usuario {usuario_nuevo!r} con otra clase deberia admitirse"
+capturar_paso(app, "segundo_registro_admitido", paso_excel=6)
+cerrar_dialogo_rhd(frame, app)
+frame.get_by_role("button", name="Buscar").click()
+esperar_fin_de_carga(app, frame)
+filas_usuario = frame.locator("table tbody tr", has_text=usuario_nuevo)
+assert filas_usuario.count() >= 2, f"Se esperaban al menos 2 filas para {usuario_nuevo!r} (una por cada clase), se vieron {filas_usuario.count()}"
+capturar_paso(app, "dos_combinaciones_en_listado", paso_excel=7)
+''')
+
+add("CP041", "abrir_asignacion_rhd", '''
+usuario_nuevo = f"QA{random.randint(10000, 99999)}"
+dialogo = abrir_modal_rhd(frame, "Agregar")
+completar_modal_rhd(dialogo, clase="F1 - Por interrupción de servicio", tension="BT", usuario=usuario_nuevo)
+dialogo.get_by_role("button", name="Aceptar").click()
+app.wait_for_timeout(2500)
+cerrar_dialogo_rhd(frame, app)
+frame.get_by_role("button", name="Buscar").click()
+esperar_fin_de_carga(app, frame)
+fila = frame.locator("table tbody tr", has_text=usuario_nuevo)
+fila.first.click()
+app.wait_for_timeout(500)
+capturar_paso(app, "usuario_seleccionado", paso_excel=4)
+frame.get_by_role("button", name="Modificar", exact=True).click()
+dialogo_mod = frame.get_by_role("dialog").last
+dialogo_mod.wait_for(state="visible", timeout=8000)
+valor_usuario = dialogo_mod.locator("#rhd-modal-usuario").input_value()
+assert valor_usuario == usuario_nuevo, f"El modal deberia traer el usuario {usuario_nuevo!r}, trajo {valor_usuario!r}"
+capturar_paso(app, "modal_con_datos_del_registro", paso_excel=6)
+dialogo_mod.locator("#rhd-modal-clase").select_option(label="F2 - Por deterioro de artefactos")
+capturar_paso(app, "clase_cambiada", paso_excel=7)
+dialogo_mod.get_by_role("button", name="Aceptar").click()
+app.wait_for_timeout(2500)
+mensaje = frame.get_by_text(re.compile("se modifico correctamente", re.IGNORECASE))
+assert mensaje.count() > 0 and mensaje.first.is_visible(), "Se esperaba el mensaje 'Se Modifico correctamente'"
+capturar_paso(app, "mensaje_modificacion_exitosa", paso_excel=8)
+''')
+
+add("CP042", "abrir_asignacion_rhd", '''
+frame.get_by_role("button", name="Buscar").click()
+esperar_fin_de_carga(app, frame)
+fila_responsable = frame.locator("table tbody tr", has_text="OPOL")
+fila_responsable.first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name="Modificar", exact=True).click()
+dialogo1 = frame.get_by_role("dialog").last
+dialogo1.wait_for(state="visible", timeout=8000)
+capturar_paso(app, "modal_usuario_responsable", paso_excel=4)
+assert dialogo1.locator("#rhd-modal-responsable").is_checked(), "La casilla deberia llegar MARCADA para un usuario responsable"
+dialogo1.get_by_role("button", name="Cancelar").click()
+app.wait_for_timeout(800)
+
+fila_no_responsable = frame.locator("table tbody tr", has_text="DCABA_DW")
+fila_no_responsable.first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name="Modificar", exact=True).click()
+dialogo2 = frame.get_by_role("dialog").last
+dialogo2.wait_for(state="visible", timeout=8000)
+capturar_paso(app, "modal_usuario_no_responsable", paso_excel=6)
+assert not dialogo2.locator("#rhd-modal-responsable").is_checked(), "La casilla deberia llegar SIN marcar para un usuario no responsable"
+dialogo2.get_by_role("button", name="Cancelar").click()
+capturar_paso(app, "verificacion_completa", paso_excel=7)
+''')
+
+add("CP043", "abrir_asignacion_rhd", '''
+frame.get_by_role("button", name="Buscar").click()
+esperar_fin_de_carga(app, frame)
+fila = frame.locator("table tbody tr", has_text="OPOL")
+fila.first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name="Modificar", exact=True).click()
+dialogo = frame.get_by_role("dialog").last
+dialogo.wait_for(state="visible", timeout=8000)
+capturar_paso(app, "modal_modificar_abierto", paso_excel=4)
+campo_usuario = dialogo.locator("#rhd-modal-usuario")
+assert campo_usuario.is_disabled(), "El campo Usuario deberia estar bloqueado en modo Modificar"
+campo_clase = dialogo.locator("#rhd-modal-clase")
+campo_tension = dialogo.locator("#rhd-modal-tension")
+assert campo_clase.is_enabled() and campo_tension.is_enabled(), "Los campos Clase y Nivel Tension deberian admitir cambios"
+capturar_paso(app, "bloqueos_verificados", paso_excel=7)
+dialogo.get_by_role("button", name="Cancelar").click()
+''')
+
+add("CP045", "abrir_asignacion_rhd", '''
+usuario_nuevo = f"QA{random.randint(10000, 99999)}"
+dialogo = abrir_modal_rhd(frame, "Agregar")
+completar_modal_rhd(dialogo, clase="F1 - Por interrupción de servicio", tension="BT", usuario=usuario_nuevo)
+dialogo.get_by_role("button", name="Aceptar").click()
+app.wait_for_timeout(2500)
+cerrar_dialogo_rhd(frame, app)
+frame.get_by_role("button", name="Buscar").click()
+esperar_fin_de_carga(app, frame)
+fila = frame.locator("table tbody tr", has_text=usuario_nuevo)
+fila.first.click()
+app.wait_for_timeout(500)
+capturar_paso(app, "usuario_seleccionado", paso_excel=4)
+frame.get_by_role("button", name="Eliminar", exact=True).click()
+dialogo_el = frame.get_by_role("dialog").last
+dialogo_el.wait_for(state="visible", timeout=8000)
+capturar_paso(app, "modal_eliminar_abierto", paso_excel=5)
+dialogo_el.get_by_role("button", name="Aceptar").click()
+app.wait_for_timeout(1500)
+dialogo_confirma = frame.get_by_role("dialog").last
+if dialogo_confirma.count() > 0 and dialogo_confirma.is_visible():
+    dialogo_confirma.get_by_role("button", name=re.compile("^(Aceptar|S[ií])$")).click()
+    app.wait_for_timeout(1500)
+mensaje = frame.get_by_text(re.compile("se elimino correctamente", re.IGNORECASE))
+assert mensaje.count() > 0 and mensaje.first.is_visible(), "Se esperaba el mensaje 'Se Elimino correctamente'"
+capturar_paso(app, "mensaje_eliminacion_exitosa", paso_excel=6)
+cerrar_dialogo_rhd(frame, app)
+app.wait_for_timeout(1000)
+frame.get_by_role("button", name="Buscar").click()
+esperar_fin_de_carga(app, frame)
+fila_borrada = frame.locator("table tbody tr", has_text=usuario_nuevo)
+assert fila_borrada.count() == 0, f"El usuario {usuario_nuevo!r} no deberia aparecer mas en el listado"
+capturar_paso(app, "usuario_eliminado_verificado", paso_excel=7)
+''')
+
+add("CP046", "abrir_asignacion_rhd", '''
+usuario_nuevo = f"QA{random.randint(10000, 99999)}"
+dialogo = abrir_modal_rhd(frame, "Agregar")
+completar_modal_rhd(dialogo, clase="F1 - Por interrupción de servicio", tension="BT", usuario=usuario_nuevo)
+dialogo.get_by_role("button", name="Aceptar").click()
+app.wait_for_timeout(2500)
+cerrar_dialogo_rhd(frame, app)
+frame.get_by_role("button", name="Buscar").click()
+esperar_fin_de_carga(app, frame)
+fila = frame.locator("table tbody tr", has_text=usuario_nuevo)
+fila.first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name="Eliminar", exact=True).click()
+dialogo_el = frame.get_by_role("dialog").last
+dialogo_el.wait_for(state="visible", timeout=8000)
+dialogo_el.get_by_role("button", name="Aceptar").click()
+app.wait_for_timeout(1500)
+dialogo_confirma = frame.get_by_role("dialog").last
+dialogo_confirma.wait_for(state="visible", timeout=8000)
+texto_confirma = dialogo_confirma.inner_text()
+capturar_paso(app, "pregunta_confirmacion", paso_excel=5)
+assert "seguro" in texto_confirma.lower() and "eliminar" in texto_confirma.lower(), f"No aparecio el texto de confirmacion esperado, se vio: {texto_confirma!r}"
+dialogo_confirma.get_by_role("button", name=re.compile("^(Cancelar|No)$")).click()
+app.wait_for_timeout(1000)
+# GOTCHA REAL: al declinar la confirmacion, solo se cierra el dialogo
+# superpuesto - el modal "Eliminar Registro" original (con los datos)
+# queda abierto debajo y hay que cerrarlo tambien con su propio Cancelar.
+dialogo_datos_residual = frame.get_by_role("dialog").last
+if dialogo_datos_residual.count() > 0 and dialogo_datos_residual.is_visible():
+    dialogo_datos_residual.get_by_role("button", name="Cancelar").click()
+    app.wait_for_timeout(800)
+frame.get_by_role("button", name="Buscar").click()
+esperar_fin_de_carga(app, frame)
+fila_sigue = frame.locator("table tbody tr", has_text=usuario_nuevo)
+assert fila_sigue.count() > 0, f"El usuario {usuario_nuevo!r} deberia seguir en el listado tras declinar la eliminacion"
+capturar_paso(app, "usuario_sigue_en_listado", paso_excel=7)
+''')
+
+add("CP047", "abrir_asignacion_rhd", '''
+frame.get_by_role("button", name="Buscar").click()
+esperar_fin_de_carga(app, frame)
+fila = frame.locator("table tbody tr", has_text="OPOL")
+fila.first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name="Eliminar", exact=True).click()
+dialogo = frame.get_by_role("dialog").last
+dialogo.wait_for(state="visible", timeout=8000)
+capturar_paso(app, "modal_eliminar_abierto", paso_excel=4)
+assert dialogo.locator("#rhd-modal-clase").is_disabled(), "El campo Clase deberia estar bloqueado en modo Eliminar"
+assert dialogo.locator("#rhd-modal-tension").is_disabled(), "El campo Nivel Tension deberia estar bloqueado en modo Eliminar"
+assert dialogo.locator("#rhd-modal-usuario").is_disabled(), "El campo Usuario deberia estar bloqueado en modo Eliminar"
+capturar_paso(app, "tres_campos_bloqueados_verificados", paso_excel=6)
+dialogo.get_by_role("button", name="Cancelar").click()
+''')
+
+add("CP049", "abrir_asignacion_rhd", '''
+usuario_nuevo = f"QA{random.randint(10000, 99999)}"
+
+dialogo = abrir_modal_rhd(frame, "Agregar")
+completar_modal_rhd(dialogo, clase="F1 - Por interrupción de servicio", tension="BT", usuario=usuario_nuevo)
+dialogo.get_by_role("button", name="Aceptar").click()
+app.wait_for_timeout(2500)
+mensaje_alta = frame.get_by_text(re.compile("se agrego correctamente", re.IGNORECASE))
+cerrar_dialogo_rhd(frame, app)
+app.wait_for_timeout(500)
+fila_tras_alta = frame.locator("table tbody tr", has_text=usuario_nuevo)
+assert fila_tras_alta.count() > 0, "El listado deberia actualizarse solo tras el Agregar, sin volver a buscar"
+capturar_paso(app, "listado_actualizado_tras_agregar", paso_excel=4)
+
+fila_tras_alta.first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name="Modificar", exact=True).click()
+dialogo_mod = frame.get_by_role("dialog").last
+dialogo_mod.wait_for(state="visible", timeout=8000)
+dialogo_mod.locator("#rhd-modal-tension").select_option(label="MT/AT")
+dialogo_mod.get_by_role("button", name="Aceptar").click()
+app.wait_for_timeout(2500)
+mensaje_mod = frame.get_by_text(re.compile("se modifico correctamente", re.IGNORECASE))
+cerrar_dialogo_rhd(frame, app)
+app.wait_for_timeout(500)
+fila_tras_mod = frame.locator("table tbody tr", has_text=usuario_nuevo)
+assert "MT" in fila_tras_mod.first.inner_text(), "El listado deberia reflejar el cambio de Modificar sin volver a buscar"
+capturar_paso(app, "listado_actualizado_tras_modificar", paso_excel=5)
+
+fila_tras_mod.first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name="Eliminar", exact=True).click()
+dialogo_el = frame.get_by_role("dialog").last
+dialogo_el.wait_for(state="visible", timeout=8000)
+dialogo_el.get_by_role("button", name="Aceptar").click()
+app.wait_for_timeout(1500)
+dialogo_confirma = frame.get_by_role("dialog").last
+if dialogo_confirma.count() > 0 and dialogo_confirma.is_visible():
+    dialogo_confirma.get_by_role("button", name=re.compile("^(Aceptar|S[ií])$")).click()
+    app.wait_for_timeout(1500)
+mensaje_el = frame.get_by_text(re.compile("se elimino correctamente", re.IGNORECASE))
+cerrar_dialogo_rhd(frame, app)
+app.wait_for_timeout(500)
+fila_final = frame.locator("table tbody tr", has_text=usuario_nuevo)
+assert fila_final.count() == 0, "El listado deberia actualizarse solo tras Eliminar, sin volver a buscar"
+capturar_paso(app, "listado_actualizado_tras_eliminar", paso_excel=6)
+''')
 
 add("CP040", "abrir_asignacion_rhd", '''
 dialogo = abrir_modal_rhd(frame, "Agregar")
@@ -1166,12 +1503,19 @@ capturar_paso(app, "modal_no_abierto_verificado", paso_excel=6)
 # RF-03 - Listado Pedidos Importantes (CP050-CP064)
 # CONFIRMADO EN VIVO el 17/09/2026: a diferencia de RF-01/RF-02, esta
 # pantalla YA trae 1 pedido real por defecto (codigo 10761-28, Estado
-# REGISTRADO) - no hace falta un rango especial. CP061 (Dar por
-# Atendido, caso base) y CP062 (varios a la vez) quedan PENDIENTES a
-# proposito: confirmarlos de verdad cambiaria el estado de ese unico
-# pedido real de forma permanente (sin forma de revertirlo desde la UI)
-# y rompería el resto de los casos que dependen de que siga
-# REGISTRADO - decision explicita del usuario, no retomar sin su ok.
+# REGISTRADO) - no hace falta un rango especial (el filtro "Desde" por
+# defecto es hoy menos 7 dias).
+# CP061 cerrado OK el 22/09/2026 sobre un pedido nuevo real (15-194,
+# fecha 14/08/2026) - el primer pedido (10761-28) quedo consumido de
+# forma permanente al confirmarse en una corrida anterior (paso a
+# ATENDIDO, sin forma de revertirlo desde la UI). Los pedidos de esta
+# pantalla son datos CONSUMIBLES: antes de re-correr CP061 o de escribir
+# CP062 (necesita 2+ REGISTRADO simultaneos), confirmar en vivo cuantos
+# hay disponibles y ajustar el filtro "Desde" (campo_pedido(frame,
+# "Desde").fill(...)) para que el rango los incluya - no asumir que el
+# rango por defecto de 7 dias alcanza.
+# CP062 sigue sin escribir: nunca hubo 2+ pedidos REGISTRADO simultaneos
+# disponibles en el ambiente para confirmarlo en vivo.
 # ===========================================================================
 
 add("CP050", "abrir_pedidos_importantes", '''
@@ -1380,17 +1724,18 @@ campo_pedido(frame, "Estado").select_option(label="REGISTRADO")
 ''')
 
 add("CP061", "abrir_pedidos_importantes", '''
-# DEFECTO REAL CONFIRMADO EN VIVO el 17/09/2026 (ver
-# _exploracion/recheck_cp061_red.py): al confirmar "Dar por Atendido",
-# el backend responde 400 en POST .../DarPorAtendido con el MISMO
-# mensaje generico "Acceso denegado. StatusCode: BadRequest..." ya
-# confirmado en RF-02 (Asignacion RHD, ver CP036) y en PR000335-SP2 -
-# 3ra vez que aparece este patron en el sprint, fuerte indicio de que
-# es un problema de PERMISOS de la cuenta de pruebas DCABA_DW para
-# acciones de escritura en todo el modulo MAC, no un bug aislado por
-# pantalla. El dialogo de "resultado" en pantalla dice explicitamente
-# "No se pudo dar por atendido..." (no es un mensaje de exito
-# disfrazado) - el pedido real NO cambia de estado, sigue REGISTRADO.
+# RESUELTO 22/09/2026: el permiso de escritura de DCABA_DW para el
+# modulo MAC ya se corrigio (ver CP036/RF-02) - el backend ya no
+# devuelve 400 en POST .../DarPorAtendido. El pedido real 10761-28
+# (usado en la primera corrida de este caso) quedo consumido de forma
+# permanente (paso a ATENDIDO, sin forma de revertirlo desde la UI);
+# esta corrida usa un pedido nuevo real (15-194, fecha 14/08/2026) que
+# aparecio despues en el ambiente. El filtro "Desde" por defecto es
+# "hoy menos 7 dias" y NO alcanza a traer pedidos mas viejos - se fija
+# explicitamente a 2026-08-01 para asegurar que el pedido elegible
+# aparezca en el listado antes de buscar.
+campo_pedido(frame, "Desde").fill("2026-08-01")
+app.wait_for_timeout(400)
 buscar_pedidos(frame)
 app.wait_for_timeout(1500)
 capturar_paso(app, "busqueda_con_resultados", paso_excel=4)
@@ -1417,8 +1762,73 @@ modal_resultado = modal_pi(frame)
 assert modal_resultado.count() > 0 and modal_resultado.is_visible(), "Se esperaba un mensaje de resultado tras confirmar Dar por Atendido"
 texto_resultado = modal_resultado.inner_text()
 capturar_paso(app, "mensaje_resultado_verificado", paso_excel=7)
-assert "se dio por atendido" in texto_resultado.lower() or ("no se pudo" not in texto_resultado.lower() and codigo_llamada in texto_resultado), f"DEFECTO REAL CONFIRMADO EN VIVO: se esperaba un mensaje de EXITO al dar por atendido el pedido {codigo_llamada!r}, se vio: {texto_resultado!r} (backend responde 400 Acceso Denegado en POST DarPorAtendido - ver _exploracion/recheck_cp061_red.py). Posible falta de permiso de escritura del usuario de pruebas en este endpoint, mismo patron ya visto en RF-02 (CP036) y PR000335-SP2."
+assert "se dio por atendido" in texto_resultado.lower() or ("no se pudo" not in texto_resultado.lower() and codigo_llamada in texto_resultado), f"Se esperaba un mensaje de EXITO al dar por atendido el pedido {codigo_llamada!r}, se vio: {texto_resultado!r}"
 cerrar_modal_pi(frame, app)
+''')
+
+add("CP062", "abrir_pedidos_importantes", '''
+# CONFIRMADO EN VIVO 22/09/2026 (_exploracion/explore_cp062_multiseleccion.py):
+# la grilla no tiene checkbox propio de seleccion multiple (los 2
+# checkbox por fila son datos de solo lectura, Importante/Riesgo Vida) -
+# la multi-seleccion real se logra con Ctrl+click en la 2da fila en
+# adelante (misma fila.click() normal en la 1ra). El dialogo de
+# confirmacion en plural NO menciona codigos de llamada especificos
+# (a diferencia del caso singular CP061), solo dice en generico "Desea
+# dar por atendido los pedidos seleccionados?".
+campo_pedido(frame, "Desde").fill("2026-07-10")
+app.wait_for_timeout(400)
+buscar_pedidos(frame)
+esperar_fin_de_carga(app, frame)
+app.wait_for_timeout(1500)
+capturar_paso(app, "busqueda_con_resultados", paso_excel=4)
+filas = frame.locator("table tbody tr")
+assert filas.count() >= 2, f"Se esperaban al menos 2 pedidos para seleccionar, se vieron {filas.count()}"
+estado0 = filas.nth(0).locator("td").nth(1).inner_text().strip()
+estado1 = filas.nth(1).locator("td").nth(1).inner_text().strip()
+assert estado0.upper() == "REGISTRADO" and estado1.upper() == "REGISTRADO", f"Se esperaban 2 pedidos en estado REGISTRADO, se vio {estado0!r} y {estado1!r}"
+codigo0 = filas.nth(0).locator("td").first.inner_text().strip()
+codigo1 = filas.nth(1).locator("td").first.inner_text().strip()
+filas.nth(0).click()
+app.wait_for_timeout(300)
+filas.nth(1).click(modifiers=["Control"])
+app.wait_for_timeout(500)
+capturar_paso(app, "pedidos_seleccionados", paso_excel=5)
+frame.get_by_role("button", name="Dar por Atendido", exact=True).click()
+app.wait_for_timeout(1200)
+capturar_paso(app, "confirmacion_mostrada", paso_excel=6)
+modal = modal_pi(frame)
+assert modal.count() > 0 and modal.is_visible(), "Se esperaba el dialogo de confirmacion al presionar Dar por Atendido"
+texto_confirm = modal.inner_text()
+assert "pedidos seleccionados" in texto_confirm.lower() or "pedidos" in texto_confirm.lower(), f"Se esperaba que la confirmacion se refiera a los pedidos en PLURAL, se vio: {texto_confirm!r}"
+boton_aceptar = modal.get_by_role("button", name="Aceptar", exact=True)
+assert boton_aceptar.count() > 0, f"Se esperaba un boton para confirmar, texto del modal: {texto_confirm!r}"
+boton_aceptar.first.click()
+capturar_paso(app, "confirmacion_aceptada", paso_excel=7)
+# CONFIRMADO EN VIVO 22/09/2026: a diferencia del caso singular (CP061),
+# el flujo plural NO deja un dialogo de resultado visible el tiempo
+# suficiente para capturarlo con una espera fija (o no existe uno
+# separado) - la prueba real de exito es la re-busqueda de mas abajo,
+# que confirma que ambos codigos dejaron de figurar como REGISTRADO.
+modal_resultado = modal_pi(frame)
+try:
+    modal_resultado.wait_for(state="visible", timeout=3000)
+    texto_resultado = modal_resultado.inner_text()
+    print(f"[INFO] Mensaje de resultado capturado: {texto_resultado!r}")
+    assert "no se pudo" not in texto_resultado.lower(), f"Se esperaba un mensaje de EXITO al dar por atendido los pedidos {codigo0!r} y {codigo1!r}, se vio: {texto_resultado!r}"
+    cerrar_modal_pi(frame, app)
+except PWTimeoutError:
+    print("[INFO] No aparecio (o ya se cerro) un dialogo de resultado separado para el flujo plural - se valida el exito via la re-busqueda final.")
+app.wait_for_timeout(500)
+campo_pedido(frame, "Desde").fill("2026-07-10")
+buscar_pedidos(frame)
+esperar_fin_de_carga(app, frame)
+app.wait_for_timeout(1500)
+tabla_texto = frame.locator("table tbody").inner_text()
+fila0_actualizada = [l for l in tabla_texto.split(chr(10)) if codigo0 in l]
+fila1_actualizada = [l for l in tabla_texto.split(chr(10)) if codigo1 in l]
+capturar_paso(app, "estado_final_verificado", paso_excel=7)
+assert not fila0_actualizada or "REGISTRADO" not in fila0_actualizada[0], f"Se esperaba que {codigo0!r} ya no figure como REGISTRADO tras darlo por atendido"
+assert not fila1_actualizada or "REGISTRADO" not in fila1_actualizada[0], f"Se esperaba que {codigo1!r} ya no figure como REGISTRADO tras darlo por atendido"
 ''')
 
 add("CP063", "abrir_pedidos_importantes", '''
@@ -1470,20 +1880,36 @@ cerrar_modal_pi(frame, app)
 
 # ===========================================================================
 # RF-04 - Resumen De Pedidos (CP065-CP075)
-# CONFIRMADO EN VIVO el 17/09/2026: a diferencia de RF-03, esta pantalla
-# esta VACIA de datos activos en este ambiente (0 filas incluso con la
-# ventana de tiempo mas amplia, 12 horas) - es un tablero de pedidos EN
-# CURSO ahora mismo, no un historico. Los casos que necesitan filas
-# reales para verificar agrupacion/consolidacion/detalle quedan
-# documentados como AVISO (CP067/069/072/075); los que verifican
-# ESTRUCTURA (opciones, validaciones de campo, filtro personalizado) se
-# confirman igual sin depender de datos.
+# CONFIRMADO EN VIVO el 17/09/2026: en ese momento la pantalla estaba
+# VACIA de datos activos (0 filas incluso con la ventana mas amplia, 12
+# horas) - es un tablero de pedidos EN CURSO ahora mismo, no un
+# historico, por eso los casos que necesitan filas reales quedaron con
+# AVISO tolerante en vez de asercion dura.
+# RECONFIRMADO EN VIVO 22/09/2026 (pedido explicito del usuario: "que
+# sea con data"): el ambiente SI tiene actividad real ahora - 1 pedido
+# EN CURSO real (BAJA TENSION, SET "HP = HUACHIPA", Cantidad 1) dentro
+# de la ventana de 12h. Con ese dato real confirmado se endurecieron a
+# asercion dura: CP065 (data en la grilla principal), CP069 (filtro SET
+# acota resultados - "HP = HUACHIPA" trae la fila real, "3H = TRES
+# HERMANAS" trae 0), CP072 (seleccionar fila puebla el detalle), CP075
+# (exportacion real via expect_download + lectura del .xlsx con
+# openpyxl, comparado contra la grilla). CP067 (retirar eje Llave
+# consolida SUMANDO cantidades) sigue con AVISO parcial: con 1 sola fila
+# real no hay como demostrar una suma real de 2+ filas que colapsan en
+# 1 - se valida lo que SI se puede probar con el dato actual (el
+# checkbox funciona y la fila persiste con la misma Cantidad al no
+# haber nada que consolidar).
 # ===========================================================================
 
 add("CP065", "abrir_resumen_pedidos", '''
+# CONFIRMADO EN VIVO 22/09/2026: este ambiente SI tiene pedidos EN CURSO
+# reales dentro de la ventana de 12h (tablero en tiempo real, no
+# historico) - se exige data real en vez del AVISO tolerante anterior
+# (pedido explicito del usuario: "que sea con data").
 campo_resumen(frame, "Tiempo").select_option(label="Ultimos 12 horas")
 buscar_resumen(frame)
-app.wait_for_timeout(2000)
+esperar_fin_de_carga(app, frame)
+app.wait_for_timeout(1500)
 capturar_paso(app, "busqueda_ejecutada", paso_excel=4)
 encabezados = tabla_resumen(frame).locator("thead th").all_inner_texts()
 ESPERADOS = ["Subtipo Pedido", "SET", "Alimentador", "SED", "Llave", "Cantidad"]
@@ -1491,7 +1917,9 @@ for e in ESPERADOS:
     assert any(e.lower() in h.lower() for h in encabezados), f"Se esperaba la columna {e!r}, encabezados reales: {encabezados}"
 capturar_paso(app, "columnas_verificadas", paso_excel=5)
 filas = tabla_resumen(frame).locator("tbody tr")
-print(f"[AVISO] Filas en el resumen (ventana 12h, la mas amplia disponible): {filas.count()} - este ambiente no tiene pedidos EN CURSO activos ahora mismo (es un tablero en tiempo real, no historico), por eso puede dar 0 sin ser un fallo.")
+assert filas.count() > 0, "Se esperaba al menos 1 fila con datos reales en el resumen de pedidos (ventana Ultimos 12 horas), se vio la grilla vacia"
+capturar_paso(app, "datos_verificados", paso_excel=6)
+print(f"[INFO] Filas en el resumen (ventana 12h): {filas.count()}")
 ''')
 
 add("CP066", "abrir_resumen_pedidos", '''
@@ -1516,10 +1944,22 @@ frame.locator("body").click(position={"x": 10, "y": 10})
 ''')
 
 add("CP067", "abrir_resumen_pedidos", '''
-# TODO SIN CONFIRMAR: este ambiente no tiene pedidos EN CURSO activos
-# (ver AVISO de CP065) - no hay datos reales con los que verificar que
-# retirar un eje consolide filas (sumando cantidades). Se documenta que
-# el checkbox del eje SI se puede desmarcar correctamente.
+# CONFIRMADO EN VIVO 22/09/2026: el ambiente tiene 1 sola fila real EN
+# CURSO (ver docstring RF-04) - no alcanza para demostrar una
+# consolidacion real de 2+ filas SUMANDO cantidades (se necesitarian 2
+# pedidos que compartan Subtipo/SET/Alimentador/SED y difieran solo en
+# Llave). Se valida con data real lo que SI se puede probar: la
+# Cantidad de la fila existente ANTES y DESPUES de retirar el eje debe
+# ser la MISMA (nada que consolidar con 1 sola fila).
+campo_resumen(frame, "Tiempo").select_option(label="Ultimos 12 horas")
+buscar_resumen(frame)
+esperar_fin_de_carga(app, frame)
+app.wait_for_timeout(1500)
+filas_antes = tabla_resumen(frame).locator("tbody tr")
+assert filas_antes.count() > 0, "Se esperaba al menos 1 fila real antes de retirar el eje Llave"
+cantidad_antes = filas_antes.first.locator("td").last.inner_text().strip()
+capturar_paso(app, "cantidad_antes_verificada", paso_excel=4)
+
 toggle_filtro_campo(frame)
 app.wait_for_timeout(800)
 checkboxes = checkboxes_filtro_campo(frame)
@@ -1532,14 +1972,19 @@ for i in range(checkboxes.count()):
         break
 assert eje_llave is not None, "Se esperaba encontrar el checkbox del eje 'Llave'"
 eje_llave.uncheck()
-capturar_paso(app, "eje_llave_retirado", paso_excel=4)
+capturar_paso(app, "eje_llave_retirado", paso_excel=5)
 assert not eje_llave.is_checked(), "Se esperaba poder desmarcar el eje 'Llave'"
 frame.locator("body").click(position={"x": 10, "y": 10})
 app.wait_for_timeout(300)
 buscar_resumen(frame)
+esperar_fin_de_carga(app, frame)
 app.wait_for_timeout(1500)
-capturar_paso(app, "busqueda_sin_eje_llave", paso_excel=5)
-print("[AVISO] Se confirmo que el eje se puede retirar, pero no hay pedidos EN CURSO en este ambiente para verificar que las filas se consolidan sumando cantidades.")
+capturar_paso(app, "busqueda_sin_eje_llave", paso_excel=6)
+filas_despues = tabla_resumen(frame).locator("tbody tr")
+assert filas_despues.count() > 0, "Se esperaba seguir viendo al menos 1 fila real tras retirar el eje Llave"
+cantidad_despues = filas_despues.first.locator("td").last.inner_text().strip()
+assert cantidad_despues == cantidad_antes, f"Con 1 sola fila real no deberia cambiar la Cantidad al retirar el eje Llave (antes={cantidad_antes!r}, despues={cantidad_despues!r})"
+print(f"[AVISO] Con 1 sola fila real se confirmo que la Cantidad se mantiene ({cantidad_antes!r}) al retirar el eje - no se pudo demostrar la SUMA de 2+ filas consolidadas por faltar un 2do pedido con el mismo Subtipo/SET/Alimentador/SED y distinta Llave.")
 ''')
 
 add("CP068", "abrir_resumen_pedidos", '''
@@ -1553,18 +1998,30 @@ print(f"[INFO] Opciones de ventana de tiempo: {opciones!r}")
 ''')
 
 add("CP069", "abrir_resumen_pedidos", '''
-# TODO SIN CONFIRMAR: este ambiente no tiene pedidos EN CURSO activos
-# (ver AVISO de CP065) - no hay datos reales con los que verificar que
-# los filtros de red (SET/Alimentador/SED/Llave) acoten resultados
-# reales, individual o combinadamente.
-campo_resumen(frame, "SET").select_option(index=1)
-capturar_paso(app, "set_elegido", paso_excel=4)
+# CONFIRMADO EN VIVO 22/09/2026 (_exploracion/explore_rf04_data_real.py):
+# el unico pedido real EN CURSO tiene SET "HP = HUACHIPA" - se prueba el
+# acotamiento real en los 2 sentidos: filtrando por el SET que matchea
+# (debe traer la fila real) y filtrando por un SET distinto conocido
+# (debe traer 0 filas), en vez de un index posicional sin verificar.
 campo_resumen(frame, "Tiempo").select_option(label="Ultimos 12 horas")
+campo_resumen(frame, "SET").select_option(label="HP = HUACHIPA")
+capturar_paso(app, "set_coincidente_elegido", paso_excel=4)
 buscar_resumen(frame)
+esperar_fin_de_carga(app, frame)
 app.wait_for_timeout(1500)
-capturar_paso(app, "busqueda_filtrada_por_set", paso_excel=5)
-filas = tabla_resumen(frame).locator("tbody tr")
-print(f"[AVISO] Filas tras filtrar por un SET puntual: {filas.count()} - no se pudo verificar el acotamiento real sin pedidos EN CURSO en este ambiente.")
+capturar_paso(app, "busqueda_filtrada_por_set_coincidente", paso_excel=5)
+filas_match = tabla_resumen(frame).locator("tbody tr")
+assert filas_match.count() > 0, "Se esperaba al menos 1 fila real al filtrar por el SET 'HP = HUACHIPA' (coincide con el pedido real EN CURSO)"
+
+campo_resumen(frame, "SET").select_option(label="3H = TRES HERMANAS")
+capturar_paso(app, "set_distinto_elegido", paso_excel=6)
+buscar_resumen(frame)
+esperar_fin_de_carga(app, frame)
+app.wait_for_timeout(1500)
+capturar_paso(app, "busqueda_filtrada_por_set_distinto", paso_excel=7)
+filas_nomatch = tabla_resumen(frame).locator("tbody tr")
+assert filas_nomatch.count() == 0, f"Se esperaban 0 filas al filtrar por un SET sin pedidos reales ('3H = TRES HERMANAS'), se vieron {filas_nomatch.count()}"
+print(f"[INFO] Acotamiento por SET confirmado con data real: 'HP = HUACHIPA' trae {filas_match.count()} fila(s), '3H = TRES HERMANAS' trae {filas_nomatch.count()}.")
 ''')
 
 add("CP070", "abrir_resumen_pedidos", '''
@@ -1620,23 +2077,24 @@ campo_resumen(frame, "Filtro Personalizado").uncheck()
 ''')
 
 add("CP072", "abrir_resumen_pedidos", '''
-# TODO SIN CONFIRMAR: este ambiente no tiene pedidos EN CURSO activos
-# (ver AVISO de CP065) - no hay ninguna fila del resumen para
-# seleccionar y verificar que el detalle se completa correctamente.
+# CONFIRMADO EN VIVO 22/09/2026: el ambiente tiene 1 pedido real EN
+# CURSO - se exige poder seleccionarlo y ver el detalle poblado (pedido
+# explicito del usuario: "que sea con data").
 campo_resumen(frame, "Tiempo").select_option(label="Ultimos 12 horas")
 buscar_resumen(frame)
+esperar_fin_de_carga(app, frame)
 app.wait_for_timeout(1500)
 capturar_paso(app, "busqueda_ejecutada", paso_excel=4)
 filas_resumen = tabla_resumen(frame).locator("tbody tr")
-if filas_resumen.count() > 0:
-    filas_resumen.first.click()
-    app.wait_for_timeout(1000)
-    capturar_paso(app, "fila_seleccionada_detalle_abierto", paso_excel=5)
-    filas_detalle = tabla_detalle_resumen(frame).locator("tbody tr")
-    print(f"[INFO] Detalle poblado con {filas_detalle.count()} fila(s) tras seleccionar la agrupacion.")
-else:
-    capturar_paso(app, "sin_filas_para_seleccionar", paso_excel=5)
-    print("[AVISO] No hay pedidos EN CURSO en este ambiente - no se pudo seleccionar ninguna fila del resumen para verificar que el detalle se completa.")
+assert filas_resumen.count() > 0, "Se esperaba al menos 1 fila real en el resumen para poder seleccionarla"
+filas_resumen.first.click()
+esperar_fin_de_carga(app, frame)
+app.wait_for_timeout(1500)
+capturar_paso(app, "fila_seleccionada_detalle_abierto", paso_excel=5)
+filas_detalle = tabla_detalle_resumen(frame).locator("tbody tr")
+assert filas_detalle.count() > 0, "Se esperaba que el panel de detalle se pueble con al menos 1 fila real al seleccionar la agrupacion"
+capturar_paso(app, "detalle_verificado", paso_excel=6)
+print(f"[INFO] Detalle poblado con {filas_detalle.count()} fila(s) tras seleccionar la agrupacion.")
 ''')
 
 add("CP073", "abrir_resumen_pedidos", '''
@@ -1652,13 +2110,21 @@ capturar_paso(app, "panel_detalle_vacio_verificado", paso_excel=5)
 ''')
 
 add("CP074", "abrir_resumen_pedidos", '''
+# CONFIRMADO EN VIVO 22/09/2026 (_exploracion/explore_rf04_data_real.py):
+# expect_download() SI detecta la descarga real del .xlsx en este boton
+# (junto con el dialogo de confirmacion) - se reemplaza el AVISO
+# anterior por una verificacion dura del archivo fisico.
 campo_resumen(frame, "Tiempo").select_option(label="Ultimos 12 horas")
 buscar_resumen(frame)
+esperar_fin_de_carga(app, frame)
 app.wait_for_timeout(1500)
 capturar_paso(app, "busqueda_ejecutada", paso_excel=4)
-frame.get_by_role("button", name="Exportar", exact=True).click()
-app.wait_for_timeout(1500)
+with app.expect_download(timeout=10000) as descarga_info:
+    frame.get_by_role("button", name="Exportar", exact=True).click()
+descarga = descarga_info.value
 capturar_paso(app, "exportacion_disparada", paso_excel=5)
+assert descarga.suggested_filename.lower().endswith(".xlsx"), f"Se esperaba un archivo .xlsx, se vio: {descarga.suggested_filename!r}"
+descarga.save_as(str(EVIDENCIA / descarga.suggested_filename))
 modal = frame.locator("cdk-dialog-container, .mdl-confirmar, nz-modal-container").last
 assert modal.count() > 0 and modal.is_visible(), "Se esperaba un dialogo de confirmacion tras Exportar"
 texto = modal.inner_text()
@@ -1667,29 +2133,46 @@ capturar_paso(app, "mensaje_exportacion_verificado", paso_excel=6)
 boton_aceptar = modal.get_by_role("button", name="Aceptar", exact=True)
 if boton_aceptar.count():
     boton_aceptar.first.click()
-print("[AVISO] No se pudo confirmar con expect_download() que el archivo fisico se haya descargado en esta corrida - el dialogo 'Exportacion generada.' aparece igual, se documenta como evidencia visual.")
+print(f"[INFO] Descarga real verificada: {descarga.suggested_filename!r}")
 ''')
 
 add("CP075", "abrir_resumen_pedidos", '''
-# TODO SIN CONFIRMAR: este ambiente no tiene pedidos EN CURSO activos
-# (ver AVISO de CP065) - no hay filas reales en la grilla con las que
-# comparar el contenido del archivo exportado filtrado.
-campo_resumen(frame, "SET").select_option(index=1)
-valor_set_elegido = campo_resumen(frame, "SET").locator("option:checked").inner_text()
+# CONFIRMADO EN VIVO 22/09/2026 (_exploracion/explore_rf04_data_real.py):
+# expect_download() SI detecta una descarga real (.xlsx) en este boton -
+# se compara el contenido descargado contra la grilla filtrada por el
+# SET real "HP = HUACHIPA", en vez de solo documentar el dialogo.
+import openpyxl as _openpyxl
 campo_resumen(frame, "Tiempo").select_option(label="Ultimos 12 horas")
+campo_resumen(frame, "SET").select_option(label="HP = HUACHIPA")
+valor_set_elegido = campo_resumen(frame, "SET").locator("option:checked").inner_text()
 buscar_resumen(frame)
+esperar_fin_de_carga(app, frame)
 app.wait_for_timeout(1500)
 capturar_paso(app, "busqueda_filtrada", paso_excel=4)
-frame.get_by_role("button", name="Exportar", exact=True).click()
-app.wait_for_timeout(1500)
+filas_grilla = tabla_resumen(frame).locator("tbody tr")
+assert filas_grilla.count() > 0, f"Se esperaba al menos 1 fila real filtrando por SET={valor_set_elegido!r}"
+cantidad_esperada = filas_grilla.count()
+
+with app.expect_download(timeout=10000) as descarga_info:
+    frame.get_by_role("button", name="Exportar", exact=True).click()
+descarga = descarga_info.value
 capturar_paso(app, "exportacion_con_filtro", paso_excel=5)
+assert descarga.suggested_filename.lower().endswith(".xlsx"), f"Se esperaba un archivo .xlsx, se vio: {descarga.suggested_filename!r}"
+ruta_descarga = EVIDENCIA / descarga.suggested_filename
+descarga.save_as(str(ruta_descarga))
+
 modal = frame.locator("cdk-dialog-container, .mdl-confirmar, nz-modal-container").last
 if modal.count() and modal.is_visible():
     boton_aceptar = modal.get_by_role("button", name="Aceptar", exact=True)
     if boton_aceptar.count():
         boton_aceptar.first.click()
-capturar_paso(app, "verificado", paso_excel=6)
-print(f"[AVISO] Exportacion disparada con SET={valor_set_elegido!r} - no se pudo comparar el contenido del archivo contra la grilla (grilla sin filas EN CURSO en este ambiente).")
+
+wb = _openpyxl.load_workbook(str(ruta_descarga))
+ws = wb.active
+filas_archivo = [fila for fila in ws.iter_rows(min_row=2, values_only=True) if any(c is not None for c in fila)]
+capturar_paso(app, "archivo_exportado_verificado", paso_excel=6)
+assert len(filas_archivo) == cantidad_esperada, f"Se esperaban {cantidad_esperada} fila(s) de datos en el archivo exportado (SET={valor_set_elegido!r}), se vieron {len(filas_archivo)}"
+print(f"[INFO] Exportacion verificada con SET={valor_set_elegido!r}: {len(filas_archivo)} fila(s) en el archivo, coincide con la grilla.")
 ''')
 
 

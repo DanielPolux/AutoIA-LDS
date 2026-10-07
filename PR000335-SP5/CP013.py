@@ -80,6 +80,7 @@ PASOS_CASO = '1. Ingresar a la plataforma web LDS. 2. Buscar la aplicacion de Se
 
 PASO_CONTADOR = {"n": 0}
 CAPTURAS_POR_PASO_EXCEL = {}  # numero de paso del Excel (int) -> [nombres de archivo .png]
+ULTIMA_CAPTURA = {"nombre": None}  # nombre del ultimo .png tomado (ver generar_word_evidencia)
 
 
 def capturar_paso(objetivo, descripcion, paso_excel=None):
@@ -106,6 +107,7 @@ def capturar_paso(objetivo, descripcion, paso_excel=None):
     PASO_CONTADOR["n"] += 1
     nombre = f"{CASO}_{PASO_CONTADOR['n']:02d}_{descripcion}.png"
     objetivo.screenshot(path=str(EVIDENCIA / nombre), full_page=True)
+    ULTIMA_CAPTURA["nombre"] = nombre
     if paso_excel is not None:
         CAPTURAS_POR_PASO_EXCEL.setdefault(paso_excel, []).append(nombre)
     if PAUSA_ANTES_CLIC and descripcion.startswith("antes_de"):
@@ -392,21 +394,36 @@ def _localizar_ffmpeg():
     return None
 
 
-def _unir_videos(video1, video2, destino, timeout_seg=60):
-    """Concatena 2 .webm (portal + aplicacion) en un solo archivo con
-    ffmpeg (stream copy, sin recodificar: ambos ya comparten resolucion y
-    codec porque los graba el mismo record_video_size). Si no encuentra un
-    ffmpeg con soporte 'concat' o falla la union, no toca los archivos
-    originales y devuelve False para que el caller los deje como 2 videos
-    separados (ver _localizar_ffmpeg: en una maquina sin ffmpeg completo
-    en el PATH, esto es la norma, no un error - instalar un ffmpeg
-    "completo" y agregarlo al PATH si se quiere un solo .webm por caso)."""
+def _unir_videos(destino, *videos, timeout_seg=60):
+    """Concatena N .webm (portal + aplicacion + cualquier pagina extra
+    que Playwright haya grabado, ej. una pestana efimera abierta
+    durante una descarga) en un solo archivo con ffmpeg (stream copy,
+    sin recodificar: todos comparten resolucion/codec porque los graba
+    el mismo record_video_size). Si no encuentra un ffmpeg con soporte
+    'concat' o falla la union, no toca los archivos originales y
+    devuelve False para que el caller los deje como videos separados
+    (ver _localizar_ffmpeg: en una maquina sin ffmpeg completo en el
+    PATH, esto es la norma, no un error - instalar un ffmpeg "completo"
+    y agregarlo al PATH si se quiere un solo .webm por caso).
+
+    BUG REAL confirmado en vivo 22/09/2026 (PR000335-SP5, casos con
+    descarga real via expect_download): Chromium a veces abre una
+    pagina efimera adicional para servir la descarga, que Playwright
+    graba igual (record_video_dir aplica a TODO el contexto) pero
+    nunca queda referenciada por ninguna variable page/app del caller -
+    por eso la firma acepta *videos en vez de exactamente 2, para que
+    el caller pueda barrer y sumar cualquier page@*.webm huerfano que
+    haya quedado en la carpeta de evidencia antes de llamar a esta
+    funcion."""
+    videos = [v for v in videos if v is not None]
+    if len(videos) < 2:
+        return False
     ffmpeg = _localizar_ffmpeg()
     if not ffmpeg:
-        print("  (aviso) no hay un ffmpeg con soporte 'concat' disponible (el de Playwright no lo trae); quedan los 2 videos separados. Instalar ffmpeg completo y agregarlo al PATH para unirlos en uno solo.")
+        print("  (aviso) no hay un ffmpeg con soporte 'concat' disponible (el de Playwright no lo trae); quedan los videos separados. Instalar ffmpeg completo y agregarlo al PATH para unirlos en uno solo.")
         return False
     lista = destino.parent / f"{destino.stem}_lista.txt"
-    lista.write_text(f"file '{video1.name}'\nfile '{video2.name}'\n", encoding="utf-8")
+    lista.write_text("".join(f"file '{v.name}'\n" for v in videos), encoding="utf-8")
     try:
         resultado = subprocess.run(
             [str(ffmpeg), "-y", "-f", "concat", "-safe", "0", "-i", str(lista), "-c", "copy", str(destino)],
@@ -422,13 +439,13 @@ def _unir_videos(video1, video2, destino, timeout_seg=60):
             # browser.close(), NO se debe reportar la union como fallida
             # (bug real confirmado en vivo 17/09/2026: un WinError 32 aca
             # tapaba un merge exitoso con el aviso "no se pudieron unir").
-            for video_origen in (video1, video2):
-                for intento_borrado in range(4):
+            for video_origen in videos:
+                for intento_borrado in range(14):
                     try:
                         video_origen.unlink(missing_ok=True)
                         break
                     except (PermissionError, OSError) as e:
-                        if intento_borrado == 3:
+                        if intento_borrado == 13:
                             print(f"  (aviso) la union de videos funciono, pero no se pudo borrar {video_origen.name}: {e}")
                         else:
                             time.sleep(0.5)
@@ -653,7 +670,7 @@ def abrir_modal_rhd(frame, nombre_boton):
     (app-modal-opciones-rhd), titulo "Agregar Registro"/"Modificar
     Registro"/"Eliminar Registro" segun el boton."""
     frame.get_by_role("button", name=nombre_boton, exact=True).click()
-    dialogo = frame.get_by_role("dialog")
+    dialogo = frame.get_by_role("dialog").last
     dialogo.wait_for(state="visible", timeout=8000)
     return dialogo
 
@@ -671,6 +688,23 @@ def completar_modal_rhd(dialogo, clase=None, tension=None, usuario=None, respons
             checkbox.check()
         else:
             checkbox.uncheck()
+
+
+def cerrar_dialogo_rhd(frame, app, timeout_ms=8000):
+    """Cierra el dialogo "Proceso" (resultado de Agregar/Modificar/
+    Eliminar en Asignacion RHD) pulsando su boton Aceptar. GOTCHA REAL
+    confirmado en vivo el 22/09/2026: el patron
+    `mensaje.first.locator("..").get_by_role("button", ...)` es fragil
+    - el boton Aceptar NO es hijo del mismo contenedor padre inmediato
+    del texto del mensaje (esta en una seccion/footer distinta del
+    dialogo), asi que subir un solo nivel con ".." nunca lo encuentra y
+    termina en timeout. Se usa el dialogo COMPLETO (mismo patron ya
+    validado en cerrar_modal_pi de RF-03) en vez de intentar acotar por
+    el texto."""
+    dialogo = frame.get_by_role("dialog").last
+    dialogo.wait_for(state="visible", timeout=timeout_ms)
+    dialogo.get_by_role("button", name=re.compile("Aceptar")).click(timeout=timeout_ms)
+    app.wait_for_timeout(600)
 
 # --- Navegacion: CONFIRMADA EN VIVO el 15/09/2026 - cada app es un item
 #     hoja directo, un solo popup por click (ver docstring del modulo). ---
@@ -798,10 +832,14 @@ def generar_word_evidencia():
     (via CAPTURAS_POR_PASO_EXCEL, poblado por capturar_paso(...,
     paso_excel=N) - ver CAPTURAR_PASO_CODE), en vez de listar el texto de
     "Pasos a seguir" aparte y las capturas con una etiqueta tecnica
-    derivada del nombre de archivo. Las capturas sin paso_excel asignado
-    (o si el caso no uso ese parametro en absoluto) quedan en una seccion
-    "Otras capturas" al final, con su etiqueta tecnica de siempre como
-    respaldo. "Resultado esperado" cierra el documento."""
+    derivada del nombre de archivo. La ULTIMA captura tomada en el caso (ULTIMA_CAPTURA, actualizada por
+    capturar_paso() en cada llamada) se excluye SIEMPRE de su grupo por
+    paso numerico y se coloca junto a "Resultado esperado" al final del
+    documento, para que quien revisa el Word vea de forma inequivoca la
+    imagen que valida el resultado esperado. Las capturas sin
+    paso_excel asignado (no deberian existir si cada capturar_paso()
+    del caso pasa ese parametro) se incluyen igual, con su etiqueta
+    tecnica de siempre, sin agruparlas bajo un encabezado generico."""
     pngs = sorted(EVIDENCIA.glob("*.png"))
     if not pngs:
         return
@@ -828,26 +866,32 @@ def generar_word_evidencia():
 
     pngs_por_nombre = {p.name: p for p in pngs}
     usados = set()
+    nombre_ultima = ULTIMA_CAPTURA.get("nombre")
 
     if CAPTURAS_POR_PASO_EXCEL:
         textos_paso = _parsear_pasos_excel(PASOS_CASO)
         for numero in sorted(CAPTURAS_POR_PASO_EXCEL):
+            nombres_paso = [n for n in CAPTURAS_POR_PASO_EXCEL[numero] if n != nombre_ultima]
+            if not nombres_paso:
+                continue
             cuerpo.append(_docx_parrafo(textos_paso.get(numero, f"Paso {numero}"), "Heading2"))
-            for nombre_archivo in CAPTURAS_POR_PASO_EXCEL[numero]:
+            for nombre_archivo in nombres_paso:
                 ruta_png = pngs_por_nombre.get(nombre_archivo)
                 if ruta_png is not None:
                     agregar_imagen(ruta_png)
                     usados.add(nombre_archivo)
 
-    pngs_restantes = [p for p in pngs if p.name not in usados and not p.name.endswith("_error.png")]
-    if pngs_restantes:
-        if usados:
-            cuerpo.append(_docx_parrafo("Otras capturas:", "Heading2"))
-        for ruta_png in pngs_restantes:
-            cuerpo.append(_docx_parrafo(_etiqueta_paso_png(ruta_png), "Heading2"))
-            agregar_imagen(ruta_png)
+    pngs_restantes = [p for p in pngs if p.name not in usados and p.name != nombre_ultima and not p.name.endswith("_error.png")]
+    for ruta_png in pngs_restantes:
+        cuerpo.append(_docx_parrafo(_etiqueta_paso_png(ruta_png), "Heading2"))
+        agregar_imagen(ruta_png)
+        usados.add(ruta_png.name)
 
     cuerpo.append(_docx_parrafo("Resultado esperado:", "Heading2"))
+    if nombre_ultima:
+        ruta_ultima = pngs_por_nombre.get(nombre_ultima)
+        if ruta_ultima is not None:
+            agregar_imagen(ruta_ultima)
     cuerpo.append(_docx_parrafo(RESULTADO_ESPERADO_CASO))
 
     document_xml = (
@@ -923,16 +967,19 @@ def main():
             browser.close()
             ruta_portal = _renombrar_video(video_portal, EVIDENCIA / f"{CASO}-1.webm") if video_portal is not None else None
             ruta_app = _renombrar_video(video_app, EVIDENCIA / f"{CASO}-2.webm") if video_app is not None else None
-            if ruta_portal and ruta_app:
-                _unir_videos(ruta_portal, ruta_app, EVIDENCIA / f"{CASO}_video.webm")
-            elif ruta_portal:
+            rutas_videos = [r for r in (ruta_portal, ruta_app) if r is not None]
+            # BUG REAL confirmado en vivo 22/09/2026: casos con descarga
+            # real (app.expect_download(), ej. boton "Exportar") a veces
+            # dejan una pestana efimera adicional grabada por Playwright
+            # que nunca queda referenciada por `page`/`app` - se barre
+            # cualquier page@*.webm huerfano en EVIDENCIA y se suma al
+            # video final en vez de dejarlo suelto.
+            rutas_videos.extend(p for p in sorted(EVIDENCIA.glob("page@*.webm")) if p not in rutas_videos)
+            if len(rutas_videos) > 1:
+                _unir_videos(EVIDENCIA / f"{CASO}_video.webm", *rutas_videos)
+            elif len(rutas_videos) == 1:
                 try:
-                    ruta_portal.replace(EVIDENCIA / f"{CASO}_video.webm")
-                except (PermissionError, OSError) as e:
-                    print(f"  (aviso) no se pudo renombrar el video final: {e}")
-            elif ruta_app:
-                try:
-                    ruta_app.replace(EVIDENCIA / f"{CASO}_video.webm")
+                    rutas_videos[0].replace(EVIDENCIA / f"{CASO}_video.webm")
                 except (PermissionError, OSError) as e:
                     print(f"  (aviso) no se pudo renombrar el video final: {e}")
             if GRABAR_WORD:

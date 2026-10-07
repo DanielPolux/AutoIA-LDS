@@ -1,0 +1,77 @@
+{
+  "CP008": {
+    "motivo": "Servicio externo de generación de reportes no disponible en Pruebas: 'No se generó informe.' (confirmado 3/3, coincide con riesgo ya documentado en el EF Sección 11).",
+    "fecha_verificacion": "2026-09-27",
+    "evidencia": "run_all.py --solo CP008 (ver reportes/logs/CP008.log)"
+  },
+  "CP039": {
+    "motivo": "Contradice el supuesto de la matriz: 'Leer' con filtro por defecto (Estado=Activos) da 'Demasiados registros para ser mostrados en la grilla.' (RN-03) - el universo real de activos en Pruebas supera 2000 registros.",
+    "fecha_verificacion": "2026-09-28",
+    "evidencia": "_exploracion/explore_45_rf06_completo.py"
+  },
+  "CP041": {
+    "motivo": "No se encontró un filtro real que devuelva entre 100 y 2000 registros (rango exacto para probar paginación 'Siguientes').",
+    "fecha_verificacion": "2026-09-28",
+    "evidencia": "Exploración RF-06 (Mantenedor de Inspectores de Corte)"
+  },
+  "CP044": {
+    "motivo": "Verificado manualmente OK ('Eliminación realizada Satisfactoriamente.') pero no se deja como caso automatizado repetible: la Baja no tiene reversión en la UI y Alta (que generaría datos descartables) está bloqueada por el servicio de ficha caído.",
+    "fecha_verificacion": "2026-09-28",
+    "evidencia": "_exploracion/explore_55_56_rf06_eliminar_2408.py"
+  },
+  "CP045": {
+    "motivo": "Sin un 2do registro de prueba descartable disponible (Alta bloqueada, único conocido -2408- ya usado en CP044).",
+    "fecha_verificacion": "2026-09-28",
+    "evidencia": "Ver CP044/CP046-047"
+  },
+  "CP046": {
+    "motivo": "DEFECTO/BLOQUEO REAL: el servicio externo de validación de ficha falla igual con una ficha inventada (999001) o una ficha real ya asignada (4504) - 'Error de Servicio: Error al validar la ficha.' Coincide con riesgo ya documentado en el EF Sección 11.",
+    "fecha_verificacion": "2026-09-28",
+    "evidencia": "_exploracion/explore_58_rf06_cp046_solo.py"
+  },
+  "CP047": {
+    "motivo": "Mismo bloqueo que CP046: el servicio de validación de ficha (correlativo + área por sucursal) está caído - cualquier Alta falla antes de evaluar la regla de negocio.",
+    "fecha_verificacion": "2026-09-28",
+    "evidencia": "_exploracion/explore_51_rf06_alta_todas_sucursales.py"
+  },
+  "CP048": {
+    "motivo": "Verificado manualmente OK (Sucursal/Área confirmadas sin cambios pese a modificar el combo) pero no automatizado: requiere modificar temporalmente un inspector real y restaurarlo - riesgo de dejar datos reales modificados si el paso de restauración falla.",
+    "fecha_verificacion": "2026-09-28",
+    "evidencia": "_exploracion/explore_53_rf06_modificar_2408.py, explore_59..61_rf06_*.py"
+  },
+  "CP052": {
+    "motivo": "DEFECTO REAL: ingresar una fecha calendario válida en el nz-date-picker congela la pantalla por completo (reproducido 5 veces, distintos métodos de interacción, sin recuperación ni con 100s+ de espera).",
+    "fecha_verificacion": "2026-09-28",
+    "evidencia": "_exploracion/explore_21..27_rf07_*.py, explore_38_rf07_espera_larga.py"
+  },
+  "CP053": {
+    "motivo": "Mismo defecto real de CP052 (nz-date-picker congela la pantalla).",
+    "fecha_verificacion": "2026-09-28",
+    "evidencia": "_exploracion/explore_21..27_rf07_*.py"
+  },
+  "CP064": {
+    "motivo": "DEFECTO REAL confirmado en una 2da pantalla distinta (Consulta Genérica de Reposiciones) - mismo defecto de nz-date-picker que congela la pantalla.",
+    "fecha_verificacion": "2026-09-28",
+    "evidencia": "_exploracion/explore_28..31_rf09_*.py"
+  },
+  "CP068": {
+    "motivo": "Mismo defecto real de CP064 (nz-date-picker congela la pantalla).",
+    "fecha_verificacion": "2026-09-28",
+    "evidencia": "_exploracion/explore_28..31_rf09_*.py"
+  },
+  "CP069": {
+    "motivo": "Mismo defecto real de CP064 (nz-date-picker congela la pantalla).",
+    "fecha_verificacion": "2026-09-28",
+    "evidencia": "_exploracion/explore_28..31_rf09_*.py"
+  },
+  "CP070": {
+    "motivo": "Mismo defecto real de CP064 (nz-date-picker congela la pantalla).",
+    "fecha_verificacion": "2026-09-28",
+    "evidencia": "_exploracion/explore_28..31_rf09_*.py"
+  },
+  "CP071": {
+    "motivo": "Mismo defecto real de CP064 (nz-date-picker congela la pantalla).",
+    "fecha_verificacion": "2026-09-28",
+    "evidencia": "_exploracion/explore_28..31_rf09_*.py"
+  }
+}

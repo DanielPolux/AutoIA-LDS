@@ -323,7 +323,7 @@ def main():
         app = None
         _CASO_OK = False
         try:
-            login(page)
+            login(page, paso_excel=1)  # mismo paso que abrir_tu_app(..., paso_excel=1) - ver gotcha "Paso 1: login" mas abajo
             app, frame = abrir_tu_app(page)
             pantalla = frame.locator("app-tu-pantalla")
 
@@ -360,12 +360,24 @@ def main():
                 # real, ver Seccion "Errores reales" mas abajo).
                 ruta_portal = _renombrar_video(video_portal, EVIDENCIA / f"{{CASO}}-1.webm") if video_portal is not None else None
                 ruta_app = _renombrar_video(video_app, EVIDENCIA / f"{{CASO}}-2.webm") if video_app is not None else None
-                if ruta_portal and ruta_app:
-                    _unir_videos(ruta_portal, ruta_app, EVIDENCIA / f"{{CASO}}_video.webm")
-                elif ruta_portal:
-                    ruta_portal.replace(EVIDENCIA / f"{{CASO}}_video.webm")
-                elif ruta_app:
-                    ruta_app.replace(EVIDENCIA / f"{{CASO}}_video.webm")
+                rutas_videos = [r for r in (ruta_portal, ruta_app) if r is not None]
+                # BUG REAL confirmado en vivo 22/09/2026 (PR000335-SP5):
+                # casos con descarga real (app.expect_download(), ej.
+                # boton "Exportar") a veces dejan una pestana efimera
+                # adicional grabada por Playwright que nunca queda
+                # referenciada por page/app - se barre cualquier
+                # page@*.webm huerfano en EVIDENCIA y se suma al video
+                # final en vez de dejarlo suelto (estandar desde esta
+                # fecha: TODO caso queda con un unico .webm, sin importar
+                # cuantas paginas haya abierto).
+                rutas_videos.extend(p for p in sorted(EVIDENCIA.glob("page@*.webm")) if p not in rutas_videos)  # evita duplicar el video del portal si _renombrar_video fallo y devolvio esa misma ruta como fallback
+                if len(rutas_videos) > 1:
+                    _unir_videos(EVIDENCIA / f"{{CASO}}_video.webm", *rutas_videos)
+                elif len(rutas_videos) == 1:
+                    try:
+                        rutas_videos[0].replace(EVIDENCIA / f"{{CASO}}_video.webm")
+                    except (PermissionError, OSError) as e:
+                        print(f"  (aviso) no se pudo renombrar el video final: {{e}}")
                 if GRABAR_WORD:
                     generar_word_evidencia()
             else:
@@ -375,6 +387,13 @@ def main():
                     for _intento_descarte in range(4):
                         try:
                             Path(video_obj.path()).unlink(missing_ok=True)
+                            break
+                        except (PermissionError, OSError):
+                            time.sleep(0.5)
+                for extra in EVIDENCIA.glob("page@*.webm"):
+                    for _intento_descarte in range(4):
+                        try:
+                            extra.unlink(missing_ok=True)
                             break
                         except (PermissionError, OSError):
                             time.sleep(0.5)
@@ -697,6 +716,137 @@ identificá la tabla correcta por su título/sección (ej.
 comentario CUÁL índice es cuál y cómo se confirmó) antes de leer
 columnas/filas.
 
+**Gotchas confirmados en vivo (PR000349-SP1, 25/09/2026 - primer proyecto
+con frontend ng-zorro/Ant Design en vez de los combos/grillas "clasicos"
+de proyectos anteriores):**
+
+**Una `<nz-table>` de ant-design siempre trae una fila oculta extra
+`tr.ant-table-measure-now` (`nz-table-measure-row`) de uso interno para
+medir el layout de columnas - un `tabla.locator("tbody tr").count()` sin
+filtrar cuenta SIEMPRE 1 fila de mas.** Confirmado en vivo (PR000349-SP1
+CP004/CP005): un assert esperando 3 filas veia 4, uno esperando 1 veia 2 -
+en ambos casos exactamente +1. Si tu app usa ant-design/ng-zorro
+(`nz-table`, clases `ant-*`), filtrar siempre esa fila:
+```python
+filas = tabla.locator("tbody tr:not(.ant-table-measure-now)")
+```
+
+**El toast de exito de ant-design/nz-message (ej. "Cartera creada
+exitosamente.") se AUTODESVANECE en pocos segundos - a diferencia de un
+popover/modal persistente, leerlo despues de esperas largas (networkidle +
+pausas de sobra) lo pierde SIEMPRE, dando un falso FALLO aunque la
+operacion funciono de verdad.** Confirmado en vivo (PR000349-SP1 CP008/
+CP010/CP011): la cartera SI quedaba creada/modificada/anulada en la
+grilla, pero el assert sobre el mensaje fallaba porque para cuando se leia
+`body.inner_text()` el toast ya no estaba. Si tu app rechaza la operacion
+en cambio, suele mostrar una ventana de error PERSISTENTE (no se
+autodesvanece) con su propio boton "Aceptar". Patron: cerrar el dialogo de
+confirmacion y leer el resultado CASI INMEDIATAMENTE despues (una pausa
+corta, no networkidle + pausas largas), y si aparece una SEGUNDA ventana
+(el error persistente) leer esa en su lugar:
+```python
+dialogo.get_by_role("button", name="Aceptar").click()
+app.wait_for_timeout(1000)  # corto, no de sobra - el toast de exito no dura
+mensaje = frame.locator("body").inner_text()
+segunda = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+if segunda.count() > 0 and segunda.first.is_visible():
+    mensaje = segunda.first.inner_text()  # error persistente, mas especifico
+    segunda.first.get_by_role("button", name="Aceptar").click()
+```
+
+**Algunos toasts de exito son AÚN MAS rapidos que el patron de arriba: ni
+siquiera una pausa fija corta (1-2s) alcanza a capturarlos, sin pasar
+por ningun dialogo .ant-modal en absoluto (el texto se pinta directo en
+el body y desaparece).** Confirmado en vivo (PR000349-SP1 RF-05
+"Emision de Cartas Masivas", CP025/CP029): con pausas fijas de hasta
+2000ms antes de leer `body.inner_text()`, el mensaje "Impresion
+finalizada con exito." ya no estaba - la captura de pantalla tomada
+justo despues del fallo tampoco lo mostraba, y el formulario ya se
+habia reseteado (lista de clientes vacia) como si la operacion hubiera
+fallado, aunque en realidad SI se genero. Para estos casos, no alcanza
+una pausa fija por mas corta que sea - hace falta SONDEAR el texto en
+un bucle corto hasta encontrar la frase esperada (o agotar un timeout
+breve), en vez de asumir un unico punto en el tiempo donde leerlo:
+```python
+def esperar_mensaje_exito(app, frame, frase, timeout_ms=4000, intervalo_ms=150):
+    plazo = time.monotonic() + timeout_ms / 1000
+    ultimo = ""
+    while time.monotonic() < plazo:
+        ultimo = frame.locator("body").inner_text()
+        if frase.lower() in ultimo.lower():
+            return ultimo
+        app.wait_for_timeout(intervalo_ms)
+    return ultimo  # se agoto el timeout - devuelve el ultimo texto visto, util para diagnosticar
+```
+
+**Una grilla `<nz-table>` sin buscador/filtro y con muchas paginas reales
+(ej. 59+) no garantiza que un registro recien creado aparezca en la
+pagina 1, ni siquiera si su codigo esta pensado para ordenar primero
+alfabeticamente - a medida que se acumulan MAS registros de prueba con el
+mismo patron (ej. muchos corridos de un mismo CP en la misma sesion), el
+mas nuevo puede terminar empujado a la pagina 2+.** Confirmado en vivo
+(PR000349-SP1 CP011, tras varias corridas repetidas de exploracion):
+buscar solo en la pagina 1 funcionaba al principio y dejo de funcionar
+mas tarde en la misma sesion. Si tu app no tiene buscador, escribi una
+funcion que pagine con "Pagina siguiente" hasta encontrar el registro (o
+llegar al final), en vez de asumir una pagina fija:
+```python
+def buscar_fila_en_paginas(app, frame, codigo, max_paginas=65):
+    boton_siguiente = frame.locator("li.ant-pagination-next button")
+    for _ in range(max_paginas):
+        fila = frame.locator("tbody tr:not(.ant-table-measure-now)").filter(has_text=codigo)
+        if fila.count() > 0:
+            return fila.first
+        if boton_siguiente.get_attribute("disabled") is not None:
+            return None
+        boton_siguiente.click()
+        app.wait_for_timeout(600)
+    return None
+```
+
+**Una grilla puede NO refrescarse sola tras un alta/modificacion/baja
+exitosa (queda mostrando los mismos datos de la carga inicial) - si tu
+caso necesita ver el registro recien afectado en la grilla, hay que
+forzar una recarga (`app.reload()` + volver a obtener el `frame` del
+iframe) en vez de asumir que se actualiza en vivo.** Confirmado en vivo
+(PR000349-SP1 RF-02 "Mantenimiento de Carteras": crear una cartera nueva
+no la mostraba en la grilla hasta recargar el popup entero).
+
+**No asumas que TODAS las pantallas de un mismo proyecto piden
+confirmación con un diálogo "¿Está seguro...?" antes de ejecutar una
+acción - una pantalla puede ejecutar directo al click, sin diálogo
+alguno, aunque OTRA pantalla del mismo proyecto (misma librería
+ant-design) sí lo pida.** Confirmado en vivo (PR000349-SP1: RF-01 y RF-02
+SÍ muestran confirmación antes de Trasladar/Ingresar/Anular; RF-03
+"Asignación de Clientes a Carteras" NO la muestra en su botón
+"Asignar" - procesa directo). Copiar ciegamente el patrón
+`.ant-modal`/`nz-modal-container` `wait_for(state="visible")` de una
+pantalla ya resuelta a una pantalla nueva sin verificarlo en vivo cuelga
+con timeout cuando el diálogo simplemente no existe ahí. Escribí el
+helper de confirmación de forma TOLERANTE (si aparece un diálogo lo
+cierra, si no aparece nada en unos segundos sigue sin fallar) en vez de
+uno que exija encontrarlo siempre:
+```python
+def confirmar_dialogo_si_aparece(app, frame, timeout_ms=4000):
+    dialogo = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+    try:
+        dialogo.first.wait_for(state="visible", timeout=timeout_ms)
+    except PWTimeoutError:
+        return False
+    dialogo.first.get_by_role("button", name=re.compile("^Aceptar$|^S[ií]$", re.I)).first.click()
+    app.wait_for_timeout(1500)
+    return True
+```
+**Ojo con el efecto colateral real**: si tu caso choca esperando un
+diálogo que nunca llega, el CLICK que disparó la acción YA SE EJECUTÓ -
+el backend puede haber procesado el cambio de verdad aunque tu script
+termine en FALLO. Confirmado en vivo: un cliente quedó asignado de
+verdad a una cartera en una corrida marcada como FALLO por este motivo,
+dejando ese dato de prueba "quemado" (ya no elegible) para el siguiente
+intento - si un caso vuelve a fallar tras corregir el timeout, sospechá
+primero que el dato de prueba ya fue consumido por el intento anterior
+antes de asumir un bug nuevo.
+
 **Gotchas confirmados en vivo (PR000325-SP3, 17/09/2026):**
 
 **Corrida automática por defecto: video/Word solo en casos OK, sin
@@ -730,6 +880,18 @@ videos separados. Se instaló un build portable en
 `web_lds_core.py`) ya lo busca ahí antes de caer al de Playwright — no
 hace falta nada más por proyecto, es 2 niveles arriba de cualquier
 `CPxxx.py` (`AUTOMATIZACION_LDS\PRxxxxxx\CPxxx.py`).
+
+**Dos bugs reales del `HEADER_TEMPLATE` corregidos 06/10/2026 (ya
+aplicados en el template de arriba, propagados a todos los proyectos
+existentes ese día — ver changelog de `web_lds_core.py` para el
+detalle completo):**
+1. `login(page)` sin `paso_excel` deja esa captura huérfana, agrupada
+   al FINAL del Word con etiqueta técnica ("Paso 1: login") en vez de
+   junto al paso 1 real — usar siempre `login(page, paso_excel=1)`.
+2. `rutas_videos.extend(sorted(EVIDENCIA.glob("page@*.webm")))` sin
+   filtrar duplica el video del portal en la unión cuando
+   `_renombrar_video` falla y devuelve esa misma ruta como fallback —
+   agregar `if p not in rutas_videos` al `extend`.
 
 ## 4. Copiar `run_all.py` tal cual
 
@@ -798,6 +960,35 @@ confirmaste en vivo que son defectos reales (ver el patrón de
 con el motivo en su propia columna en "Detalle por caso"). Sin ese
 archivo el reporte sigue funcionando igual que antes, todo cae en
 "NO OK".
+
+**No concluyas "defecto real de infraestructura, no transitorio" a partir
+de 2 fallos SEGUIDOS en la misma sesión corta de exploración.** Confirmado
+en vivo (PR000349-SP1, RF-09/RF-10 "Convenios de Pago"/"Aprobación de
+Informes DWH"): una app que fallaba con un error CORS real en consola
+(`LanzarAplicativoDebug`, iframe `#aplicacion` nunca se crea) 2 veces
+seguidas se documentó como defecto permanente de infraestructura y se
+bloquearon 12 casos de prueba (`NotImplementedError`) - horas después, en
+una sesión nueva, la MISMA app con el MISMO código de apertura abrió
+perfecto 6/6 intentos, sin ningún rastro del error. Era una falla
+transitoria del backend (sobrecarga puntual), no un defecto reproducible.
+**Antes de reportar algo como "defecto real, no falta de datos" y
+bloquear casos por eso, reintentar en una sesión nueva separada por horas
+- 2 repeticiones en minutos no descartan un problema transitorio.** Si
+sigue fallando en una sesión posterior, ahí sí es evidencia sólida.
+
+**Un `SELECT * FROM tabla WHERE 1=0` (o `syscolumns`) antes de correr un
+INSERT que trae la matriz Excel, no después.** Confirmado en vivo
+(PR000349-SP1 RF-08, tabla `conve`): el INSERT que la matriz marca como
+"validado en Desarrollo" el mes pasado usaba columnas
+(`tasa_fija`/`id_tasa_convenio`) que YA NO EXISTEN en el esquema real del
+ambiente de Pruebas actual (`SQL Error [IX000]: Column not found`),
+además de fechas como string literal (`'01/01/2026'`) que chocaron con el
+`DBDATE` de la sesión Informix (`String to date conversion error`) -
+resuelto usando `MDY(mes, dia, anio)` en vez de string. El esquema de una
+tabla puede haber cambiado entre cuando Desarrollo validó el dato y
+cuando se corre el INSERT en una sesión de automatización más tarde -
+pedir siempre la lista de columnas reales antes del primer intento, no
+después del primer error.
 
 ## 7. Si mejoras algo genérico en el camino
 

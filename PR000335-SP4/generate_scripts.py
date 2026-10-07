@@ -236,7 +236,7 @@ def main():
         app = None
         _CASO_OK = False
         try:
-            login(page)
+            login(page, paso_excel=1)
             app, frame = abrir_atencion_cliente(page)
 
 {body}

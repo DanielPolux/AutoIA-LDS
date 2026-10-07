@@ -112,7 +112,59 @@ def recolectar_resultados(confirmados):
     return resultados
 
 
-def construir_workbook(resultados, confirmados):
+def construir_datos(resultados, confirmados):
+    """Calcula el resumen por RF + detalle por caso a partir de
+    `resultados` (ver recolectar_resultados()) y `confirmados` (ver
+    cargar_casos_fallidos_confirmados()), en un dict plano JSON-friendly
+    que tanto construir_workbook() como el webapp (server.py) consumen
+    sin recalcular nada por su cuenta."""
+    conteos = {}
+    for cp, v in MATRIZ.items():
+        rf = v["rf"]
+        estado = resultados.get(cp, ("SIN CORRER", "", "", ""))[0]
+        conteos.setdefault(rf, {"OK": 0, "NO OK": 0, "FALLIDO": 0, "SIN CORRER": 0, "OTRO": 0})
+        clave = estado if estado in ("OK", "NO OK", "FALLIDO", "SIN CORRER") else "OTRO"
+        conteos[rf][clave] += 1
+
+    resumen = []
+    total = {"OK": 0, "NO OK": 0, "FALLIDO": 0, "SIN CORRER": 0, "OTRO": 0}
+    for rf in sorted(conteos):
+        c = conteos[rf]
+        n_total = sum(c.values())
+        pct = round(c["OK"] / n_total * 100) if n_total else None
+        resumen.append({
+            "rf": rf, "ok": c["OK"], "no_ok": c["NO OK"] + c["OTRO"],
+            "fallido": c["FALLIDO"], "sin_correr": c["SIN CORRER"],
+            "total": n_total, "pct_ok": pct,
+        })
+        for k in total:
+            total[k] += c[k]
+
+    n_general = sum(total.values())
+    pct_general = round(total["OK"] / n_general * 100) if n_general else None
+    total_row = {
+        "ok": total["OK"], "no_ok": total["NO OK"] + total["OTRO"],
+        "fallido": total["FALLIDO"], "sin_correr": total["SIN CORRER"],
+        "total": n_general, "pct_ok": pct_general,
+    }
+
+    detalle = []
+    for cp in sorted(MATRIZ, key=lambda k: int(re.sub(r"\D", "", k) or 0)):
+        v = MATRIZ[cp]
+        estado, detalle_txt, archivo, ts = resultados.get(cp, ("SIN CORRER", "", "", ""))
+        ts_legible = f"{ts[:4]}-{ts[4:6]}-{ts[6:8]} {ts[9:11]}:{ts[11:13]}" if len(ts) >= 13 else ""
+        motivo = confirmados.get(cp, {}).get("motivo", "") if estado == "FALLIDO" else ""
+        detalle.append({
+            "cp": cp, "rf": v["rf"], "cu": v["cu"], "nombre": v["name"],
+            "resultado": estado, "ultima_corrida": ts_legible,
+            "detalle": detalle_txt, "motivo_confirmado": motivo,
+        })
+
+    sin_correr = [cp for cp in MATRIZ if cp not in resultados]
+    return {"resumen": resumen, "total": total_row, "detalle": detalle, "sin_correr": sin_correr}
+
+
+def construir_workbook(datos):
     wb = Workbook()
 
     resumen = wb.active
@@ -126,26 +178,13 @@ def construir_workbook(resultados, confirmados):
         c.font = FUENTE_HEADER
         c.fill = AZUL_HEADER
 
-    conteos = {}
-    for cp, v in MATRIZ.items():
-        rf = v["rf"]
-        estado = resultados.get(cp, ("SIN CORRER", "", "", ""))[0]
-        conteos.setdefault(rf, {"OK": 0, "NO OK": 0, "FALLIDO": 0, "SIN CORRER": 0, "OTRO": 0})
-        clave = estado if estado in ("OK", "NO OK", "FALLIDO", "SIN CORRER") else "OTRO"
-        conteos[rf][clave] += 1
+    for fila_rf in datos["resumen"]:
+        pct = f"{fila_rf['pct_ok']}%" if fila_rf["pct_ok"] is not None else "-"
+        resumen.append([fila_rf["rf"], fila_rf["ok"], fila_rf["no_ok"], fila_rf["fallido"], fila_rf["sin_correr"], fila_rf["total"], pct])
 
-    total = {"OK": 0, "NO OK": 0, "FALLIDO": 0, "SIN CORRER": 0, "OTRO": 0}
-    for rf in sorted(conteos):
-        c = conteos[rf]
-        n_total = sum(c.values())
-        pct = f"{c['OK'] / n_total * 100:.0f}%" if n_total else "-"
-        resumen.append([rf, c["OK"], c["NO OK"] + c["OTRO"], c["FALLIDO"], c["SIN CORRER"], n_total, pct])
-        for k in total:
-            total[k] += c[k]
-
-    n_general = sum(total.values())
-    pct_general = f"{total['OK'] / n_general * 100:.0f}%" if n_general else "-"
-    resumen.append(["TOTAL", total["OK"], total["NO OK"] + total["OTRO"], total["FALLIDO"], total["SIN CORRER"], n_general, pct_general])
+    t = datos["total"]
+    pct_general = f"{t['pct_ok']}%" if t["pct_ok"] is not None else "-"
+    resumen.append(["TOTAL", t["ok"], t["no_ok"], t["fallido"], t["sin_correr"], t["total"], pct_general])
     for c in resumen[resumen.max_row]:
         c.font = Font(bold=True)
         c.fill = GRIS_RF
@@ -162,10 +201,9 @@ def construir_workbook(resultados, confirmados):
     fila = 2
     rf_actual = None
     fill_por_estado = {"OK": VERDE, "FALLIDO": ROJO, "NO OK": AMARILLO, "SIN CORRER": GRIS_CLARO}
-    for cp in sorted(MATRIZ, key=lambda k: int(re.sub(r"\D", "", k) or 0)):
-        v = MATRIZ[cp]
-        if v["rf"] != rf_actual:
-            rf_actual = v["rf"]
+    for d in datos["detalle"]:
+        if d["rf"] != rf_actual:
+            rf_actual = d["rf"]
             detalle.append([rf_actual, "", "", "", "", "", "", ""])
             detalle.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=8)
             for c in detalle[fila]:
@@ -173,12 +211,9 @@ def construir_workbook(resultados, confirmados):
                 c.font = FUENTE_RF
             fila += 1
 
-        estado, detalle_txt, archivo, ts = resultados.get(cp, ("SIN CORRER", "", "", ""))
-        ts_legible = f"{ts[:4]}-{ts[4:6]}-{ts[6:8]} {ts[9:11]}:{ts[11:13]}" if len(ts) >= 13 else ""
-        motivo = confirmados.get(cp, {}).get("motivo", "") if estado == "FALLIDO" else ""
-        detalle.append([cp, v["rf"], v["cu"], v["name"], estado, ts_legible, detalle_txt, motivo])
+        detalle.append([d["cp"], d["rf"], d["cu"], d["nombre"], d["resultado"], d["ultima_corrida"], d["detalle"], d["motivo_confirmado"]])
         celda_estado = detalle.cell(row=fila, column=5)
-        celda_estado.fill = fill_por_estado.get(estado, AMARILLO)
+        celda_estado.fill = fill_por_estado.get(d["resultado"], AMARILLO)
         celda_estado.font = Font(bold=True)
         celda_estado.alignment = Alignment(horizontal="center")
         for col in range(1, 9):
@@ -196,16 +231,24 @@ def construir_workbook(resultados, confirmados):
 def main():
     confirmados = cargar_casos_fallidos_confirmados()
     resultados = recolectar_resultados(confirmados)
-    wb = construir_workbook(resultados, confirmados)
-    destino = REPORTES_DIR / f"reporte_consolidado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    datos = construir_datos(resultados, confirmados)
+    wb = construir_workbook(datos)
+
     REPORTES_DIR.mkdir(exist_ok=True)
-    wb.save(destino)
-    print(f"Reporte generado: {destino}")
+    marca = datetime.now().strftime("%Y%m%d_%H%M%S")
+    destino_xlsx = REPORTES_DIR / f"reporte_consolidado_{marca}.xlsx"
+    destino_json = REPORTES_DIR / f"reporte_consolidado_{marca}.json"
+    wb.save(destino_xlsx)
+    destino_json.write_text(
+        json.dumps({"generado": datetime.now().isoformat(), **datos}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    print(f"Reporte generado: {destino_xlsx}")
+    print(f"Reporte JSON generado: {destino_json}")
     if confirmados:
         print(f"  ({len(confirmados)} caso(s) marcados como Fallido confirmado via casos_fallidos_confirmados.json)")
-    sin_correr = [cp for cp in MATRIZ if cp not in resultados]
-    if sin_correr:
-        print(f"  ({len(sin_correr)} caso(s) nunca aparecieron en ningun CSV: {', '.join(sin_correr)})")
+    if datos["sin_correr"]:
+        print(f"  ({len(datos['sin_correr'])} caso(s) nunca aparecieron en ningun CSV: {', '.join(datos['sin_correr'])})")
 
 
 if __name__ == "__main__":

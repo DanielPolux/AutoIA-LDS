@@ -1,0 +1,47 @@
+{
+  "CP008": {
+    "motivo": "DEFECTO/BLOQUEO REAL: la pantalla 'Mantenedor De Estados De Comprobantes De Pago' (RF-02) no abre - error CORS confirmado en consola al llamar LanzarAplicativoDebug ('Access to XMLHttpRequest ... blocked by CORS policy: No Access-Control-Allow-Origin header is present'). El iframe #aplicacion nunca se crea. Modulo recien migrado (primera vez que se abre esta app en Pruebas) - probable configuracion de CORS pendiente en el backend para esta app nueva.",
+    "fecha_verificacion": "2026-10-01",
+    "evidencia": "_exploracion/explore_04_rf02_detalle.py"
+  },
+  "CP009": {
+    "motivo": "BLOQUEADO: depende de abrir la misma pantalla de RF-02 que falla por CORS en CP008 (ver motivo de CP008).",
+    "fecha_verificacion": "2026-10-01",
+    "evidencia": "Ver CP008"
+  },
+  "CP010": {
+    "motivo": "BLOQUEADO: depende de abrir la misma pantalla de RF-02 que falla por CORS en CP008 (ver motivo de CP008).",
+    "fecha_verificacion": "2026-10-01",
+    "evidencia": "Ver CP008"
+  },
+  "CP011": {
+    "motivo": "BLOQUEADO: depende de abrir la misma pantalla de RF-02 que falla por CORS en CP008 (ver motivo de CP008).",
+    "fecha_verificacion": "2026-10-01",
+    "evidencia": "Ver CP008"
+  },
+  "CP012": {
+    "motivo": "BLOQUEADO: depende de abrir la misma pantalla de RF-02 que falla por CORS en CP008 (ver motivo de CP008).",
+    "fecha_verificacion": "2026-10-01",
+    "evidencia": "Ver CP008"
+  },
+  "CP013": {
+    "motivo": "BLOQUEADO: depende de abrir la misma pantalla de RF-02 que falla por CORS en CP008 (ver motivo de CP008).",
+    "fecha_verificacion": "2026-10-01",
+    "evidencia": "Ver CP008"
+  },
+  "CP014": {
+    "motivo": "BLOQUEADO: depende de abrir la misma pantalla de RF-02 que falla por CORS en CP008 (ver motivo de CP008).",
+    "fecha_verificacion": "2026-10-01",
+    "evidencia": "Ver CP008"
+  },
+  "CP015": {
+    "motivo": "BLOQUEADO: depende de abrir la misma pantalla de RF-02 que falla por CORS en CP008 (ver motivo de CP008).",
+    "fecha_verificacion": "2026-10-01",
+    "evidencia": "Ver CP008"
+  },
+  "CP044": {
+    "motivo": "BLOQUEADO: depende de abrir la misma pantalla de RF-02 que falla por CORS en CP008 (ver motivo de CP008).",
+    "fecha_verificacion": "2026-10-01",
+    "evidencia": "Ver CP008"
+  }
+}
