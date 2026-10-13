@@ -854,7 +854,7 @@ def main():
             # src del iframe #aplicacion (confirmado en vivo que dispara la
             # consulta automatica igual que un ?suministro=<nro> real).
             src_actual = app.locator("#aplicacion").get_attribute("src")
-            nuevo_src = src_actual + ("&" if "?" in src_actual else "?") + "suministro=1352659"
+            nuevo_src = src_actual + ("&" if "?" in src_actual else "?") + "suministro=15"
             app.evaluate("src => document.querySelector(\'#aplicacion\').src = src", nuevo_src)
             app.wait_for_timeout(5000)
             frame2 = app.locator("#aplicacion").content_frame

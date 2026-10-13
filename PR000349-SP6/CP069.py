@@ -850,7 +850,7 @@ def main():
             login(page, paso_excel=1)
             app, frame = abrir_catastro(page, paso_excel=2)
 
-            frame.locator('input[name="numeroSuministro"]').fill("1352659")
+            frame.locator('input[name="numeroSuministro"]').fill("15")
             capturar_paso(app, "suministro_ingresado", paso_excel=2)
             frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
             app.wait_for_timeout(5000)

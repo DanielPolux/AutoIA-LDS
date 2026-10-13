@@ -2541,8 +2541,13 @@ app.set_viewport_size({"width": 1600, "height": 900})
 # CONFIRMADO via Manual_RF08_Catastro.docx + exploracion en vivo
 # (_exploracion/explore_6[7-9]*.py, explore_7[0-1]*.py):
 # - Suministro real confirmado, con datos completos (Datos Generales +
-#   1 Medidor + 1 Catastro): **1352659** (mismo ejemplo real que usa
-#   el propio manual). Suministro inexistente de prueba: 9999999.
+#   3 Medidores + Catastros): **15** (confirmado en vivo 13/10/2026,
+#   reemplaza el "1352659" inicial del manual a pedido del usuario -
+#   "5" tambien es real pero sin medidores instalados, "15" es mas
+#   completo). Suministro inexistente de prueba: **1** (confirmado con
+#   captura de red: POST .../api/catastro/ObtenerCatastro -> HTTP 404,
+#   "El Suministro ingresado no existe." - codigo HTTP correcto para
+#   "no encontrado", NO es un defecto, es el comportamiento esperado).
 # - Unico input real: name="numeroSuministro". Botones: "?" (Buscar
 #   suministro, aria-label="Buscar suministro"), "Leer", "Limpiar",
 #   "A Excel" - los 3 ultimos CON icono (usar regex sin ancla, no
@@ -2597,7 +2602,7 @@ assert valor_suministro.strip() != "", (
 ''')
 
 add("CP069", "app, frame = abrir_catastro(page, paso_excel=2)", '''
-frame.locator(\'input[name="numeroSuministro"]\').fill("1352659")
+frame.locator(\'input[name="numeroSuministro"]\').fill("15")
 capturar_paso(app, "suministro_ingresado", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
 app.wait_for_timeout(5000)
@@ -2617,7 +2622,7 @@ assert "número de suministro es obligatorio" in mensaje.lower() or "numero de s
 ''')
 
 add("CP071", "app, frame = abrir_catastro(page, paso_excel=2)", '''
-frame.locator(\'input[name="numeroSuministro"]\').fill("9999999")
+frame.locator(\'input[name="numeroSuministro"]\').fill("1")
 capturar_paso(app, "suministro_inexistente", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
 app.wait_for_timeout(3000)
@@ -2626,7 +2631,7 @@ assert "no existe" in mensaje.lower(), f"Se esperaba el mensaje de Suministro in
 ''')
 
 add("CP072", "app, frame = abrir_catastro(page, paso_excel=2)", '''
-frame.locator(\'input[name="numeroSuministro"]\').fill("1352659")
+frame.locator(\'input[name="numeroSuministro"]\').fill("15")
 frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
 app.wait_for_timeout(5000)
 capturar_paso(app, "tras_consultar", paso_excel=2)
@@ -2635,7 +2640,7 @@ assert frame.get_by_role("button", name="Buscar suministro").is_disabled(), "El 
 ''')
 
 add("CP073", "app, frame = abrir_catastro(page, paso_excel=2)", '''
-frame.locator(\'input[name="numeroSuministro"]\').fill("1352659")
+frame.locator(\'input[name="numeroSuministro"]\').fill("15")
 frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
 app.wait_for_timeout(5000)
 capturar_paso(app, "antes_de_exportar", paso_excel=2)
@@ -2653,7 +2658,7 @@ assert frame.get_by_role("button", name=re.compile(r"A Excel", re.I)).is_disable
 ''')
 
 add("CP075", "app, frame = abrir_catastro(page, paso_excel=2)", '''
-frame.locator(\'input[name="numeroSuministro"]\').fill("1352659")
+frame.locator(\'input[name="numeroSuministro"]\').fill("15")
 frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
 app.wait_for_timeout(5000)
 capturar_paso(app, "con_resultado", paso_excel=2)
@@ -2671,7 +2676,7 @@ add("CP076", "app, frame = abrir_catastro(page, paso_excel=2)", '''
 # src del iframe #aplicacion (confirmado en vivo que dispara la
 # consulta automatica igual que un ?suministro=<nro> real).
 src_actual = app.locator("#aplicacion").get_attribute("src")
-nuevo_src = src_actual + ("&" if "?" in src_actual else "?") + "suministro=1352659"
+nuevo_src = src_actual + ("&" if "?" in src_actual else "?") + "suministro=15"
 app.evaluate("src => document.querySelector(\\'#aplicacion\\').src = src", nuevo_src)
 app.wait_for_timeout(5000)
 frame2 = app.locator("#aplicacion").content_frame
@@ -2682,7 +2687,7 @@ assert frame2.get_by_role("button", name=re.compile(r"Limpiar", re.I)).is_disabl
 ''')
 
 add("CP077", "app, frame = abrir_catastro(page, paso_excel=2)", '''
-frame.locator(\'input[name="numeroSuministro"]\').fill("1352659")
+frame.locator(\'input[name="numeroSuministro"]\').fill("15")
 frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
 app.wait_for_timeout(5000)
 for ancho, alto, nombre in [(1920, 1080, "desktop"), (768, 1024, "tablet"), (375, 667, "mobile")]:
