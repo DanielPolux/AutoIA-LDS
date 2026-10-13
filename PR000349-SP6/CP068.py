@@ -850,14 +850,33 @@ def main():
             login(page, paso_excel=1)
             app, frame = abrir_catastro(page, paso_excel=2)
 
-            # Ver nota del modulo: el catalogo BUSCAR_SUMIN no existe en este
-            # ambiente (precondicion de infraestructura documentada en el propio
-            # manual, no un defecto de codigo). Se documenta el bloqueo real.
+            # DEFECTO REAL CONFIRMADO 13/10/2026 con captura de red (ver gotcha 21):
+            # el boton "?" dispara GET .../api/sqlgui/Sqlgui/Modal/BUSCAR_SUMIN, que
+            # el backend rechaza con HTTP 400 -
+            # {"statusCode":400,"mensaje":"No existe plt_query_cab con
+            # codigo='BUSCAR_SUMIN'."} - falta la fila de catalogo BUSCAR_SUMIN en
+            # la tabla plt_query_cab de esta base. El popover del buscador nunca
+            # llega a cargar ("No se pudo cargar el buscador. Intente nuevamente o
+            # contacte al administrador."), asi que el Numero de Suministro nunca
+            # se completa ni se ejecuta la consulta automatica (resultado esperado
+            # real del caso). Se deja el assert sobre el resultado esperado
+            # correcto (no sobre el mensaje de error) para que el caso FALLE y
+            # documente el defecto real, igual que CP007/CP062.
             frame.get_by_role("button", name="Buscar suministro").click()
             app.wait_for_timeout(1500)
             capturar_paso(app, "buscador_abierto", paso_excel=2)
             mensaje = capturar_mensaje_dialogo(app, frame, "catalogo_no_configurado", paso_excel=4, timeout_ms=5000)
-            assert "buscar_sumin" in mensaje.lower(), f"Se esperaba el error de catalogo BUSCAR_SUMIN no configurado (bloqueo de ambiente conocido): {mensaje!r}"
+            app.wait_for_timeout(500)
+            valor_suministro = frame.locator('input[name="numeroSuministro"]').input_value()
+            assert valor_suministro.strip() != "", (
+                "El Numero de Suministro deberia completarse automaticamente al "
+                "seleccionar un cliente desde el buscador, pero el buscador nunca "
+                f"llego a cargar (mensaje visto: {mensaje!r}). DEFECTO REAL: falta "
+                "la fila de catalogo BUSCAR_SUMIN en la tabla plt_query_cab del "
+                "backend (confirmado con captura de red: GET "
+                ".../api/sqlgui/Sqlgui/Modal/BUSCAR_SUMIN -> HTTP 400, "
+                "\'No existe plt_query_cab con codigo=\'BUSCAR_SUMIN\'.\')."
+            )
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True
