@@ -522,6 +522,37 @@ app.wait_for_timeout(500)
 frame.get_by_text("0001 — FONAVI", exact=True).click()
 app.wait_for_load_state("networkidle")
 app.wait_for_timeout(1500)
+
+# Idempotencia: si el Plan "01" ya existe (de una corrida anterior de
+# este mismo caso), el Aceptar de mas abajo es rechazado como duplicado
+# y la pantalla queda en modo alta sin volver a consulta sola (mismo
+# patron de fixture no idempotente ya visto en otros RF) - se elimina
+# primero para poder probar limpio el registro desde cero.
+filas_previas = filas_tabla(frame)
+ya_existe_01 = any(filas_previas.nth(i).locator("td").first.inner_text().strip() == "01" for i in range(filas_previas.count()))
+if ya_existe_01:
+    fila_por_codigo(frame, "01").click()
+    app.wait_for_timeout(500)
+    frame.get_by_role("button", name=re.compile(r"Eliminar", re.I)).click()
+    app.wait_for_timeout(1000)
+    dialogo_borrado = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+    dialogo_borrado.first.wait_for(state="visible", timeout=5000)
+    for _intento_borrado in range(3):
+        boton_aceptar_borrado = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S)).first.get_by_role("button", name=re.compile(r"^\\s*Aceptar\\s*$", re.I))
+        if boton_aceptar_borrado.count():
+            boton_aceptar_borrado.first.click()
+        app.wait_for_timeout(2000)
+        filas_tras_borrado = filas_tabla(frame)
+        if not any(filas_tras_borrado.nth(i).locator("td").first.inner_text().strip() == "01" for i in range(filas_tras_borrado.count())):
+            break
+    # Tras confirmar la eliminacion puede quedar un modal de EXITO
+    # aparte ("Plan eliminado.") que CP008 nunca topa (ahi el caso
+    # termina en la grilla sin volver a hacer clic en nada) - aca si se
+    # sigue de inmediato al Ingresar, y ese modal residual intercepta el
+    # clic ("subtree intercepts pointer events") si no se cierra antes.
+    confirmar_dialogo_si_aparece(app, frame, timeout_ms=4000)
+    app.wait_for_timeout(500)
+
 frame.get_by_role("button", name=re.compile(r"Ingresar", re.I)).click()
 app.wait_for_timeout(800)
 inputs = frame.locator("input")
