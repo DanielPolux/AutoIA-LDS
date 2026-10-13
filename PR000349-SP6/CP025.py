@@ -888,9 +888,10 @@ def main():
             # para entrar a Modificar - sin este scroll, la captura sale cortada
             # mostrando solo la grilla/botones, sin el campo Encargo de arriba que
             # es justo lo que este paso necesita evidenciar (mismo bug ya visto en
-            # CP016, ver gotcha 29).
-            inputs.nth(0).scroll_into_view_if_needed()
-            app.wait_for_timeout(300)
+            # CP016, ver gotcha 29). Forzar el tope absoluto, no solo
+            # scroll_into_view_if_needed de un campo puntual.
+            frame.locator("body").evaluate("el => el.scrollTo(0, 0)")
+            app.wait_for_timeout(500)
             capturar_paso(app, "encargo_bloqueado", paso_excel=3)
             boton_cancelar = frame.locator("button").filter(has_text=re.compile(r"^\s*Cancelar\s*$", re.I))
             if boton_cancelar.count():

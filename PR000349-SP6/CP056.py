@@ -877,6 +877,14 @@ def main():
             assert frame.locator('input[name="codigoEncargo"]').is_disabled(), "El Codigo de Encargo deberia quedar bloqueado en modo Modificar (RN-62)"
             frame.locator('input[name="nombre"]').fill("")
             frame.locator('input[name="nombre"]').fill("QA Encargo Modificado")
+            # El iframe #aplicacion queda scrolleado hacia la fila que se clickeo
+            # para entrar a Modificar (grilla paginada) - scroll_into_view_if_needed()
+            # sobre un campo que ya esta al borde superior del viewport no hace
+            # nada, dejando igual cortado el encabezado del formulario. Forzar el
+            # scroll del iframe al tope absoluto (version reforzada del gotcha 29,
+            # scroll puntual no alcanza en grillas paginadas profundas).
+            frame.locator("body").evaluate("el => el.scrollTo(0, 0)")
+            app.wait_for_timeout(500)
             capturar_paso(app, "nombre_modificado", paso_excel=3)
             frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
             app.wait_for_timeout(2000)

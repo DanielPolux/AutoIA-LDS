@@ -883,6 +883,18 @@ def main():
             assert inputs.nth(3).is_disabled(), "El Rol Usuario deberia quedar bloqueado en modo Modificar (RN-38)"
             inputs.nth(0).fill("")
             inputs.nth(0).fill("QA Prueba Modificado")
+            # El iframe #aplicacion queda scrolleado hacia la fila que se clickeo
+            # para entrar a Modificar (en una pagina intermedia de la grilla
+            # paginada, lejos del tope) - scroll_into_view_if_needed() sobre un
+            # campo que ya esta en el borde superior del viewport NO hace nada (ya
+            # esta "a la vista"), dejando igual cortado el encabezado del
+            # formulario por ARRIBA de ese campo. Forzar el scroll del iframe al
+            # tope absoluto (no solo del campo puntual) para que la captura
+            # muestre el formulario completo (mismo bug de CP016/CP025, ver
+            # gotcha 29, version reforzada tras confirmar que el scroll puntual no
+            # alcanza en grillas paginadas profundas).
+            frame.locator("body").evaluate("el => el.scrollTo(0, 0)")
+            app.wait_for_timeout(500)
             capturar_paso(app, "nombre_modificado", paso_excel=3)
             frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
             app.wait_for_timeout(2000)

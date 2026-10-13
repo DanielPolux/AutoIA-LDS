@@ -956,8 +956,11 @@ assert not inputs.nth(2).is_disabled(), "El Valor deberia quedar editable en mod
 # el formulario de arriba (Mes/Año/Valor) que es justo lo que este
 # paso necesita evidenciar (confirmado en vivo: Mes/Año bloqueados no
 # se veian en el Word pese a que el assert de arriba pasaba bien).
-inputs.nth(0).scroll_into_view_if_needed()
-app.wait_for_timeout(300)
+# Forzar el scroll del iframe al tope absoluto (no solo
+# scroll_into_view_if_needed de un campo puntual, que no alcanza
+# cuando el scroll necesario es grande - ver gotcha 29).
+frame.locator("body").evaluate("el => el.scrollTo(0, 0)")
+app.wait_for_timeout(500)
 capturar_paso(app, "mes_año_bloqueados", paso_excel=3)
 inputs.nth(2).fill("3.95")
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
@@ -1311,9 +1314,10 @@ assert inputs.nth(0).is_disabled(), "El campo Encargo deberia quedar bloqueado e
 # para entrar a Modificar - sin este scroll, la captura sale cortada
 # mostrando solo la grilla/botones, sin el campo Encargo de arriba que
 # es justo lo que este paso necesita evidenciar (mismo bug ya visto en
-# CP016, ver gotcha 29).
-inputs.nth(0).scroll_into_view_if_needed()
-app.wait_for_timeout(300)
+# CP016, ver gotcha 29). Forzar el tope absoluto, no solo
+# scroll_into_view_if_needed de un campo puntual.
+frame.locator("body").evaluate("el => el.scrollTo(0, 0)")
+app.wait_for_timeout(500)
 capturar_paso(app, "encargo_bloqueado", paso_excel=3)
 boton_cancelar = frame.locator("button").filter(has_text=re.compile(r"^\\s*Cancelar\\s*$", re.I))
 if boton_cancelar.count():
@@ -1606,6 +1610,18 @@ inputs = frame.locator("input")
 assert inputs.nth(3).is_disabled(), "El Rol Usuario deberia quedar bloqueado en modo Modificar (RN-38)"
 inputs.nth(0).fill("")
 inputs.nth(0).fill("QA Prueba Modificado")
+# El iframe #aplicacion queda scrolleado hacia la fila que se clickeo
+# para entrar a Modificar (en una pagina intermedia de la grilla
+# paginada, lejos del tope) - scroll_into_view_if_needed() sobre un
+# campo que ya esta en el borde superior del viewport NO hace nada (ya
+# esta "a la vista"), dejando igual cortado el encabezado del
+# formulario por ARRIBA de ese campo. Forzar el scroll del iframe al
+# tope absoluto (no solo del campo puntual) para que la captura
+# muestre el formulario completo (mismo bug de CP016/CP025, ver
+# gotcha 29, version reforzada tras confirmar que el scroll puntual no
+# alcanza en grillas paginadas profundas).
+frame.locator("body").evaluate("el => el.scrollTo(0, 0)")
+app.wait_for_timeout(500)
 capturar_paso(app, "nombre_modificado", paso_excel=3)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(2000)
@@ -2190,6 +2206,14 @@ app.wait_for_timeout(800)
 assert frame.locator('input[name="codigoEncargo"]').is_disabled(), "El Codigo de Encargo deberia quedar bloqueado en modo Modificar (RN-62)"
 frame.locator('input[name="nombre"]').fill("")
 frame.locator('input[name="nombre"]').fill("QA Encargo Modificado")
+# El iframe #aplicacion queda scrolleado hacia la fila que se clickeo
+# para entrar a Modificar (grilla paginada) - scroll_into_view_if_needed()
+# sobre un campo que ya esta al borde superior del viewport no hace
+# nada, dejando igual cortado el encabezado del formulario. Forzar el
+# scroll del iframe al tope absoluto (version reforzada del gotcha 29,
+# scroll puntual no alcanza en grillas paginadas profundas).
+frame.locator("body").evaluate("el => el.scrollTo(0, 0)")
+app.wait_for_timeout(500)
 capturar_paso(app, "nombre_modificado", paso_excel=3)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(2000)

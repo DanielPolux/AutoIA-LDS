@@ -891,8 +891,11 @@ def main():
             # el formulario de arriba (Mes/Año/Valor) que es justo lo que este
             # paso necesita evidenciar (confirmado en vivo: Mes/Año bloqueados no
             # se veian en el Word pese a que el assert de arriba pasaba bien).
-            inputs.nth(0).scroll_into_view_if_needed()
-            app.wait_for_timeout(300)
+            # Forzar el scroll del iframe al tope absoluto (no solo
+            # scroll_into_view_if_needed de un campo puntual, que no alcanza
+            # cuando el scroll necesario es grande - ver gotcha 29).
+            frame.locator("body").evaluate("el => el.scrollTo(0, 0)")
+            app.wait_for_timeout(500)
             capturar_paso(app, "mes_año_bloqueados", paso_excel=3)
             inputs.nth(2).fill("3.95")
             frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
