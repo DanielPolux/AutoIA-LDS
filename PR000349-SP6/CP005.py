@@ -850,6 +850,14 @@ def main():
             login(page, paso_excel=1)
             app, frame = abrir_plan(page, paso_excel=2)
 
+            # El Codigo de Plan "A" (preexistente, legado) tiene solo 1 caracter -
+            # usarlo aca dispara la validacion de LARGO ("debe tener 2 caracteres")
+            # antes de que el backend llegue a chequear duplicado, con lo cual este
+            # caso terminaba probando sin querer la validacion de largo en vez de
+            # la de duplicado (bug real detectado al corregir la evidencia: una vez
+            # visible el dialogo, el mensaje capturado no era el de duplicado).
+            # Se usa el Plan "01" (2 caracteres, registrado por CP003 y dejado
+            # como fixture permanente del proyecto) para probar el duplicado real.
             campo_encargo = frame.locator(".ant-select-selector").first
             campo_encargo.click()
             app.wait_for_timeout(500)
@@ -859,18 +867,18 @@ def main():
             frame.get_by_role("button", name=re.compile(r"Ingresar", re.I)).click()
             app.wait_for_timeout(800)
             inputs = frame.locator("input")
-            inputs.nth(1).fill("A")
+            inputs.nth(1).fill("01")
             inputs.nth(2).fill("Plan duplicado QA")
             inputs.nth(3).fill("2.00")
             inputs.nth(4).fill("Facturación directa QA")
             capturar_paso(app, "codigo_duplicado_antes_de_aceptar", paso_excel=2)
             frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
             app.wait_for_timeout(2500)
-            mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000)
-            capturar_paso(app, "resultado_duplicado", paso_excel=4)
+            mensaje = capturar_mensaje_dialogo(app, frame, "resultado_duplicado", paso_excel=4, timeout_ms=5000)
+            assert "ya existe" in mensaje.lower() or "duplicad" in mensaje.lower(), f"Se esperaba el mensaje de Codigo de Plan duplicado: {mensaje!r}"
             filas_despues = filas_tabla(frame)
-            filas_con_a = [i for i in range(filas_despues.count()) if re.search(r"\bA\b", filas_despues.nth(i).inner_text())]
-            assert len(filas_con_a) <= 1, f"El Plan A no deberia duplicarse en la grilla tras el rechazo (mensaje visto: {mensaje!r})"
+            filas_con_01 = [i for i in range(filas_despues.count()) if filas_despues.nth(i).locator("td").first.inner_text().strip() == "01"]
+            assert len(filas_con_01) <= 1, f"El Plan 01 no deberia duplicarse en la grilla tras el rechazo (mensaje visto: {mensaje!r})"
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True
