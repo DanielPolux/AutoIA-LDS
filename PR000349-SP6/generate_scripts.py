@@ -246,6 +246,32 @@ def confirmar_dialogo_si_aparece(app, frame, timeout_ms=4000):
     app.wait_for_timeout(1000)
     return texto
 
+
+def capturar_mensaje_dialogo(app, frame, descripcion, paso_excel=None, timeout_ms=5000):
+    """Espera el dialogo de validacion/error y lo CAPTURA en evidencia
+    MIENTRAS SIGUE ABIERTO -a diferencia de llamar a
+    confirmar_dialogo_si_aparece() y recien despues capturar_paso(),
+    que cierra el modal en la MISMA llamada que lee su texto y deja la
+    evidencia mostrando la pantalla ya sin el mensaje (confirmado en
+    vivo: CP004 de RF-01, Word de evidencia sin el dialogo visible
+    pese a que el assert sobre el mensaje pasaba bien)-. Devuelve el
+    texto del dialogo, o el texto de toda la pantalla si no aparecio
+    ningun dialogo dentro de `timeout_ms`."""
+    dialogo = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+    try:
+        dialogo.first.wait_for(state="visible", timeout=timeout_ms)
+    except PWTimeoutError:
+        texto = frame.locator("body").inner_text()
+        capturar_paso(app, descripcion, paso_excel=paso_excel)
+        return texto
+    texto = dialogo.first.inner_text()
+    capturar_paso(app, descripcion, paso_excel=paso_excel)
+    boton = dialogo.first.get_by_role("button", name=re.compile(r"^\\s*(Aceptar|S[ií]|Cerrar)\\s*$", re.I))
+    if boton.count():
+        boton.first.click()
+    app.wait_for_timeout(500)
+    return texto
+
 %%WORD_HELPERS%%
 
 
@@ -528,8 +554,7 @@ inputs.nth(3).fill("1.00")
 capturar_paso(app, "codigo_vacio", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(1500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=4000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_codigo_obligatorio", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_codigo_obligatorio", paso_excel=4, timeout_ms=4000)
 assert "código" in mensaje.lower() and ("obligatorio" in mensaje.lower() or "2 caracteres" in mensaje.lower()), f"Se esperaba el mensaje de Codigo de Plan obligatorio: {mensaje!r}"
 ''')
 
@@ -573,8 +598,7 @@ inputs.nth(3).fill("3.00")
 capturar_paso(app, "sin_cargo_facturacion", paso_excel=3)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(1500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=4000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_cargo_obligatorio", paso_excel=5)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_cargo_obligatorio", paso_excel=5, timeout_ms=4000)
 assert "facturaci" in mensaje.lower() and "cargo" in mensaje.lower(), f"Se esperaba el mensaje de Cargo de Facturacion obligatorio: {mensaje!r}"
 ''')
 
@@ -764,8 +788,7 @@ inputs.nth(2).fill("3.80")
 capturar_paso(app, "mes_año_duplicado", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(2000)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_duplicado", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_duplicado", paso_excel=4, timeout_ms=5000)
 assert "ya existe" in mensaje.lower(), f"Se esperaba el mensaje de duplicado: {mensaje!r}"
 ''')
 
@@ -783,8 +806,7 @@ inputs.nth(2).fill("3.80")
 capturar_paso(app, "año_fuera_de_rango", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(2000)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_rango", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_rango", paso_excel=4, timeout_ms=5000)
 assert "año debe estar entre" in mensaje.lower(), f"Se esperaba el mensaje de rango de año: {mensaje!r}"
 ''')
 
@@ -801,8 +823,7 @@ inputs.nth(2).fill("0")
 capturar_paso(app, "valor_cero", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(2000)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_valor", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_valor", paso_excel=4, timeout_ms=5000)
 assert "mayor a cero" in mensaje.lower(), f"Se esperaba el mensaje de Valor obligatorio/mayor a cero: {mensaje!r}"
 ''')
 
@@ -1084,8 +1105,7 @@ inputs.nth(4).fill("pol-test-02")
 capturar_paso(app, "sin_direccion", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(1500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_obligatorio", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_obligatorio", paso_excel=4, timeout_ms=5000)
 assert "dirección es obligatoria" in mensaje.lower(), f"Se esperaba el mensaje de Direccion obligatoria: {mensaje!r}"
 ''')
 
@@ -1104,8 +1124,7 @@ inputs.nth(4).fill("pol-test-03")
 capturar_paso(app, "encargo_ya_asegurado", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(1500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_duplicado", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_duplicado", paso_excel=4, timeout_ms=5000)
 assert "ya tiene un seguro" in mensaje.lower(), f"Se esperaba el mensaje de Encargo ya asegurado: {mensaje!r}"
 ''')
 
@@ -1387,8 +1406,7 @@ inputs.nth(3).fill("QATEST")
 capturar_paso(app, "sin_nombre", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(1500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_obligatorio", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_obligatorio", paso_excel=4, timeout_ms=5000)
 assert "nombre es obligatorio" in mensaje.lower(), f"Se esperaba el mensaje de Nombre obligatorio: {mensaje!r}"
 ''')
 
@@ -1406,8 +1424,7 @@ inputs.nth(3).fill("QASUC")
 capturar_paso(app, "nivel_sucursal_sin_sucursal", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(1500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_sucursal_obligatoria", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_sucursal_obligatoria", paso_excel=4, timeout_ms=5000)
 assert "debe seleccionar la sucursal" in mensaje.lower(), f"Se esperaba el mensaje de Sucursal obligatoria: {mensaje!r}"
 ''')
 
@@ -1425,8 +1442,7 @@ inputs.nth(3).fill("AG")
 capturar_paso(app, "rol_duplicado", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(1500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_duplicado", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_duplicado", paso_excel=4, timeout_ms=5000)
 assert "ya está en uso" in mensaje.lower() or "ya esta en uso" in mensaje.lower(), f"Se esperaba el mensaje de Rol duplicado: {mensaje!r}"
 ''')
 
@@ -1450,8 +1466,7 @@ inputs.nth(3).fill("MPR")
 capturar_paso(app, "rol_de_usuario_real", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(1500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_rol_usuario_real", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_rol_usuario_real", paso_excel=4, timeout_ms=5000)
 assert "usuario real" in mensaje.lower(), f"Se esperaba el mensaje de Rol de un usuario real: {mensaje!r}"
 ''')
 
@@ -1511,8 +1526,7 @@ app.wait_for_timeout(500)
 capturar_paso(app, "promotor_desactivado_seleccionado", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Modificar", re.I)).click()
 app.wait_for_timeout(1500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_no_se_puede_modificar", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_no_se_puede_modificar", paso_excel=4, timeout_ms=5000)
 assert "no se puede modificar" in mensaje.lower(), f"Se esperaba el mensaje de bloqueo por Promotor desactivado: {mensaje!r}"
 ''')
 
@@ -1639,8 +1653,7 @@ inputs.nth(1).fill("Sin codigo QA")
 capturar_paso(app, "sin_codigo", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(1500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_obligatorio", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_obligatorio", paso_excel=4, timeout_ms=5000)
 assert "código es obligatorio" in mensaje.lower(), f"Se esperaba el mensaje de Codigo obligatorio: {mensaje!r}"
 ''')
 
@@ -1653,8 +1666,7 @@ inputs.nth(1).fill("Duplicado QA")
 capturar_paso(app, "codigo_duplicado", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(1500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_duplicado", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_duplicado", paso_excel=4, timeout_ms=5000)
 assert "ya existe" in mensaje.lower(), f"Se esperaba el mensaje de Codigo duplicado: {mensaje!r}"
 ''')
 
@@ -1871,8 +1883,7 @@ app.wait_for_timeout(800)
 capturar_paso(app, "sin_moneda", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(1500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_obligatorio", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_obligatorio", paso_excel=4, timeout_ms=5000)
 assert "moneda es obligatoria" in mensaje.lower(), f"Se esperaba el mensaje de Moneda obligatoria: {mensaje!r}"
 ''')
 
@@ -1888,8 +1899,7 @@ app.wait_for_timeout(400)
 capturar_paso(app, "codigo_duplicado", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(1500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_duplicado", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_duplicado", paso_excel=4, timeout_ms=5000)
 assert "ya existe un encargo" in mensaje.lower(), f"Se esperaba el mensaje de Codigo duplicado: {mensaje!r}"
 ''')
 
@@ -1906,8 +1916,7 @@ app.wait_for_timeout(400)
 capturar_paso(app, "concepto_ya_asociado", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(1500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_concepto_asociado", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_concepto_asociado", paso_excel=4, timeout_ms=5000)
 assert "ya está asociado" in mensaje.lower() or "ya esta asociado" in mensaje.lower(), f"Se esperaba el mensaje de Concepto ya asociado: {mensaje!r}"
 ''')
 
@@ -2011,7 +2020,10 @@ frame.get_by_role("button", name=re.compile(r"Modificar", re.I)).click()
 app.wait_for_timeout(800)
 checks = frame.locator("input[type='checkbox']")
 if not checks.nth(2).is_checked():
-    checks.nth(2).check()
+    try:
+        checks.nth(2).check()
+    except Exception:
+        checks.nth(2).click(force=True)
 capturar_paso(app, "franja_marcada_en_9010", paso_excel=3)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(2000)
@@ -2035,7 +2047,10 @@ frame.get_by_role("button", name=re.compile(r"Modificar", re.I)).click()
 app.wait_for_timeout(800)
 checks2 = frame.locator("input[type='checkbox']")
 if not checks2.nth(2).is_checked():
-    checks2.nth(2).check()
+    try:
+        checks2.nth(2).check()
+    except Exception:
+        checks2.nth(2).click(force=True)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(2000)
 confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000)
@@ -2215,8 +2230,7 @@ frame.locator(\'input[name="valorPorcentaje"]\').fill("0")
 capturar_paso(app, "porcentaje_cero", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(1500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_porcentaje", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_porcentaje", paso_excel=4, timeout_ms=5000)
 assert "porcentaje" in mensaje.lower() and "mayor a cero" in mensaje.lower(), f"Se esperaba el mensaje de Porcentaje obligatorio/mayor a cero: {mensaje!r}"
 ''')
 
@@ -2229,7 +2243,10 @@ app.wait_for_timeout(1200)
 frame.get_by_role("button", name=re.compile(r"Ingresar", re.I)).click()
 app.wait_for_timeout(800)
 radios = frame.locator("input[type=\'radio\']")
-radios.nth(1).check()
+try:
+    radios.nth(1).check()
+except Exception:
+    radios.nth(1).click(force=True)
 app.wait_for_timeout(400)
 campo_moneda = frame.locator(\'input[name="moneda"]\')
 campo_moneda.click()
@@ -2255,14 +2272,16 @@ app.wait_for_timeout(1200)
 frame.get_by_role("button", name=re.compile(r"Ingresar", re.I)).click()
 app.wait_for_timeout(800)
 radios = frame.locator("input[type=\'radio\']")
-radios.nth(1).check()
+try:
+    radios.nth(1).check()
+except Exception:
+    radios.nth(1).click(force=True)
 app.wait_for_timeout(400)
 frame.locator(\'input[name="valorMonto"]\').fill("10")
 capturar_paso(app, "monto_sin_moneda", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(1500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_moneda", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_moneda", paso_excel=4, timeout_ms=5000)
 assert "moneda es obligatoria" in mensaje.lower(), f"Se esperaba el mensaje de Moneda obligatoria: {mensaje!r}"
 ''')
 
@@ -2275,7 +2294,10 @@ app.wait_for_timeout(1200)
 frame.get_by_role("button", name=re.compile(r"Ingresar", re.I)).click()
 app.wait_for_timeout(800)
 radios = frame.locator("input[type=\'radio\']")
-radios.nth(2).check()
+try:
+    radios.nth(2).check()
+except Exception:
+    radios.nth(2).click(force=True)
 app.wait_for_timeout(400)
 capturar_paso(app, "cobranza_especial", paso_excel=3)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
@@ -2414,8 +2436,7 @@ add("CP068", "app, frame = abrir_catastro(page, paso_excel=2)", '''
 frame.get_by_role("button", name="Buscar suministro").click()
 app.wait_for_timeout(1500)
 capturar_paso(app, "buscador_abierto", paso_excel=2)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "catalogo_no_configurado", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "catalogo_no_configurado", paso_excel=4, timeout_ms=5000)
 assert "buscar_sumin" in mensaje.lower(), f"Se esperaba el error de catalogo BUSCAR_SUMIN no configurado (bloqueo de ambiente conocido): {mensaje!r}"
 ''')
 
@@ -2435,8 +2456,7 @@ add("CP070", "app, frame = abrir_catastro(page, paso_excel=2)", '''
 capturar_paso(app, "sin_suministro", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
 app.wait_for_timeout(1500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_obligatorio", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_obligatorio", paso_excel=4, timeout_ms=5000)
 assert "número de suministro es obligatorio" in mensaje.lower() or "numero de suministro es obligatorio" in mensaje.lower(), f"Se esperaba el mensaje de Suministro obligatorio: {mensaje!r}"
 ''')
 
@@ -2445,8 +2465,7 @@ frame.locator(\'input[name="numeroSuministro"]\').fill("9999999")
 capturar_paso(app, "suministro_inexistente", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
 app.wait_for_timeout(3000)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-capturar_paso(app, "mensaje_no_existe", paso_excel=4)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_no_existe", paso_excel=4, timeout_ms=5000)
 assert "no existe" in mensaje.lower(), f"Se esperaba el mensaje de Suministro inexistente: {mensaje!r}"
 ''')
 

@@ -611,6 +611,32 @@ def confirmar_dialogo_si_aparece(app, frame, timeout_ms=4000):
     app.wait_for_timeout(1000)
     return texto
 
+
+def capturar_mensaje_dialogo(app, frame, descripcion, paso_excel=None, timeout_ms=5000):
+    """Espera el dialogo de validacion/error y lo CAPTURA en evidencia
+    MIENTRAS SIGUE ABIERTO -a diferencia de llamar a
+    confirmar_dialogo_si_aparece() y recien despues capturar_paso(),
+    que cierra el modal en la MISMA llamada que lee su texto y deja la
+    evidencia mostrando la pantalla ya sin el mensaje (confirmado en
+    vivo: CP004 de RF-01, Word de evidencia sin el dialogo visible
+    pese a que el assert sobre el mensaje pasaba bien)-. Devuelve el
+    texto del dialogo, o el texto de toda la pantalla si no aparecio
+    ningun dialogo dentro de `timeout_ms`."""
+    dialogo = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+    try:
+        dialogo.first.wait_for(state="visible", timeout=timeout_ms)
+    except PWTimeoutError:
+        texto = frame.locator("body").inner_text()
+        capturar_paso(app, descripcion, paso_excel=paso_excel)
+        return texto
+    texto = dialogo.first.inner_text()
+    capturar_paso(app, descripcion, paso_excel=paso_excel)
+    boton = dialogo.first.get_by_role("button", name=re.compile(r"^\s*(Aceptar|S[ií]|Cerrar)\s*$", re.I))
+    if boton.count():
+        boton.first.click()
+    app.wait_for_timeout(500)
+    return texto
+
 _EMU_POR_PULGADA = 914400
 _ANCHO_MAX_PULGADAS = 6.3
 
@@ -873,7 +899,10 @@ def main():
             app.wait_for_timeout(800)
             checks = frame.locator("input[type='checkbox']")
             if not checks.nth(2).is_checked():
-                checks.nth(2).check()
+                try:
+                    checks.nth(2).check()
+                except Exception:
+                    checks.nth(2).click(force=True)
             capturar_paso(app, "franja_marcada_en_9010", paso_excel=3)
             frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
             app.wait_for_timeout(2000)
@@ -897,7 +926,10 @@ def main():
             app.wait_for_timeout(800)
             checks2 = frame.locator("input[type='checkbox']")
             if not checks2.nth(2).is_checked():
-                checks2.nth(2).check()
+                try:
+                    checks2.nth(2).check()
+                except Exception:
+                    checks2.nth(2).click(force=True)
             frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
             app.wait_for_timeout(2000)
             confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000)

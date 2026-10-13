@@ -611,6 +611,32 @@ def confirmar_dialogo_si_aparece(app, frame, timeout_ms=4000):
     app.wait_for_timeout(1000)
     return texto
 
+
+def capturar_mensaje_dialogo(app, frame, descripcion, paso_excel=None, timeout_ms=5000):
+    """Espera el dialogo de validacion/error y lo CAPTURA en evidencia
+    MIENTRAS SIGUE ABIERTO -a diferencia de llamar a
+    confirmar_dialogo_si_aparece() y recien despues capturar_paso(),
+    que cierra el modal en la MISMA llamada que lee su texto y deja la
+    evidencia mostrando la pantalla ya sin el mensaje (confirmado en
+    vivo: CP004 de RF-01, Word de evidencia sin el dialogo visible
+    pese a que el assert sobre el mensaje pasaba bien)-. Devuelve el
+    texto del dialogo, o el texto de toda la pantalla si no aparecio
+    ningun dialogo dentro de `timeout_ms`."""
+    dialogo = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+    try:
+        dialogo.first.wait_for(state="visible", timeout=timeout_ms)
+    except PWTimeoutError:
+        texto = frame.locator("body").inner_text()
+        capturar_paso(app, descripcion, paso_excel=paso_excel)
+        return texto
+    texto = dialogo.first.inner_text()
+    capturar_paso(app, descripcion, paso_excel=paso_excel)
+    boton = dialogo.first.get_by_role("button", name=re.compile(r"^\s*(Aceptar|S[ií]|Cerrar)\s*$", re.I))
+    if boton.count():
+        boton.first.click()
+    app.wait_for_timeout(500)
+    return texto
+
 _EMU_POR_PULGADA = 914400
 _ANCHO_MAX_PULGADAS = 6.3
 
@@ -838,8 +864,7 @@ def main():
             capturar_paso(app, "encargo_ya_asegurado", paso_excel=2)
             frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
             app.wait_for_timeout(1500)
-            mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000) or frame.locator("body").inner_text()
-            capturar_paso(app, "mensaje_duplicado", paso_excel=4)
+            mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_duplicado", paso_excel=4, timeout_ms=5000)
             assert "ya tiene un seguro" in mensaje.lower(), f"Se esperaba el mensaje de Encargo ya asegurado: {mensaje!r}"
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
