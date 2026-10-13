@@ -2048,19 +2048,30 @@ frame.get_by_role("button", name=re.compile(r"Ingresar", re.I)).click()
 app.wait_for_timeout(800)
 campo_producto = frame.locator('input[name="producto"]')
 campo_producto.fill("999999")
+# Capturar el codigo ya ingresado y el resto de los campos del
+# formulario ANTES de disparar la busqueda - la busqueda es practicamente
+# instantanea (el popover de rechazo ya estaba abierto para cuando se
+# tomaba esta captura 1200ms despues del clic en la lupa), asi que el
+# paso "producto_buscado" terminaba mostrando el modal tapando todo el
+# formulario en vez del codigo+campos que se supone debe evidenciar.
+# Tambien queda cortado el encabezado/primera fila del formulario
+# (Encargo/Nombre/etc.) si no se fuerza el scroll al tope (mismo bug
+# de CP016/CP025/CP035/CP056, ver gotcha 29).
+frame.locator("body").evaluate("el => el.scrollTo(0, 0)")
+app.wait_for_timeout(500)
+capturar_paso(app, "producto_buscado", paso_excel=3)
 boton_lupa = frame.locator('button:has([aria-label="search"])').first
 boton_lupa.click()
 app.wait_for_timeout(1200)
-capturar_paso(app, "producto_buscado", paso_excel=3)
 popover = frame.locator(".cdk-overlay-popover")
 popover.first.wait_for(state="visible", timeout=5000)
 app.wait_for_timeout(500)
 mensaje = popover.first.inner_text()
+capturar_paso(app, "mensaje_producto_no_existe", paso_excel=4)
 boton_ok = popover.first.locator(".conf-btn-ok")
 if boton_ok.count():
     boton_ok.first.click(force=True)
 app.wait_for_timeout(800)
-capturar_paso(app, "mensaje_producto_no_existe", paso_excel=4)
 assert "no existe" in mensaje.lower(), f"Se esperaba el mensaje de Producto inexistente: {mensaje!r}"
 ''')
 
