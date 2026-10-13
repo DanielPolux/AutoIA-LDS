@@ -1307,6 +1307,13 @@ frame.get_by_role("button", name=re.compile(r"Modificar", re.I)).click()
 app.wait_for_timeout(800)
 inputs = frame.locator("input")
 assert inputs.nth(0).is_disabled(), "El campo Encargo deberia quedar bloqueado en modo Modificar (RN-31)"
+# El iframe #aplicacion queda scrolleado hacia la fila que se clickeo
+# para entrar a Modificar - sin este scroll, la captura sale cortada
+# mostrando solo la grilla/botones, sin el campo Encargo de arriba que
+# es justo lo que este paso necesita evidenciar (mismo bug ya visto en
+# CP016, ver gotcha 29).
+inputs.nth(0).scroll_into_view_if_needed()
+app.wait_for_timeout(300)
 capturar_paso(app, "encargo_bloqueado", paso_excel=3)
 boton_cancelar = frame.locator("button").filter(has_text=re.compile(r"^\\s*Cancelar\\s*$", re.I))
 if boton_cancelar.count():
