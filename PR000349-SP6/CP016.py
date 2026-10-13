@@ -885,6 +885,14 @@ def main():
             inputs = frame.locator("input")
             assert inputs.nth(0).is_disabled() and inputs.nth(1).is_disabled(), "Mes y Año deberian quedar bloqueados en modo Modificar (RN-19)"
             assert not inputs.nth(2).is_disabled(), "El Valor deberia quedar editable en modo Modificar"
+            # El iframe #aplicacion queda scrolleado hacia la fila que se clickeo
+            # para entrar a Modificar - sin este scroll al inicio, la captura de
+            # evidencia sale cortada mostrando solo la grilla y los botones, SIN
+            # el formulario de arriba (Mes/Año/Valor) que es justo lo que este
+            # paso necesita evidenciar (confirmado en vivo: Mes/Año bloqueados no
+            # se veian en el Word pese a que el assert de arriba pasaba bien).
+            inputs.nth(0).scroll_into_view_if_needed()
+            app.wait_for_timeout(300)
             capturar_paso(app, "mes_año_bloqueados", paso_excel=3)
             inputs.nth(2).fill("3.95")
             frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
