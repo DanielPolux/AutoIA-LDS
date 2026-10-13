@@ -850,6 +850,21 @@ def main():
             login(page, paso_excel=1)
             app, frame = abrir_catastro(page, paso_excel=2)
 
+            # DEFECTO REAL CONFIRMADO 13/10/2026 (hallazgo del usuario: "el
+            # archivo a descargar esta danado y no se puede abrir"). El 1er
+            # borrador de este caso solo verificaba el NOMBRE sugerido del
+            # archivo, nunca el contenido descargado - por eso el defecto real
+            # paso desapercibido. Confirmado descargando y guardando el archivo
+            # real: tiene cientos de ocurrencias de la secuencia UTF-8 de
+            # reemplazo UTF-8 (caracter Unicode U+FFFD) distribuidas por TODO
+            # el archivo (empezando dentro del encabezado ZIP) - mas de la mitad
+            # del contenido binario queda corrompido, consistente con que el
+            # backend trata la respuesta binaria del .xlsx como texto UTF-8 en
+            # algun punto del camino (cualquier byte >= 0x80 que no forma una
+            # secuencia UTF-8 valida se reemplaza por este marcador de 3 bytes,
+            # desalineando el archivo). zipfile.is_zipfile() da True (hay un
+            # header ZIP local valido al inicio) pero abrir el archivo real falla
+            # con "Bad magic number for central directory" - no abre en Excel.
             frame.locator('input[name="numeroSuministro"]').fill("15")
             frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
             app.wait_for_timeout(5000)
@@ -860,6 +875,21 @@ def main():
             capturar_paso(app, "exportacion_completada", paso_excel=3)
             assert descarga.suggested_filename.startswith("Catastro_"), f"Se esperaba un archivo Catastro_*.xlsx: {descarga.suggested_filename!r}"
             assert descarga.suggested_filename.endswith(".xlsx"), f"Se esperaba un archivo .xlsx: {descarga.suggested_filename!r}"
+            ruta_descarga = EVIDENCIA / descarga.suggested_filename
+            descarga.save_as(str(ruta_descarga))
+            try:
+                with zipfile.ZipFile(ruta_descarga) as z:
+                    primer_malo = z.testzip()
+                error_zip = None if primer_malo is None else f"archivo interno dañado: {primer_malo}"
+            except Exception as e:
+                error_zip = str(e)
+            assert error_zip is None, (
+                "DEFECTO REAL: el archivo Excel descargado esta corrupto y no se "
+                f"puede abrir ({error_zip}). El contenido binario del .xlsx llega "
+                "con cientos de bytes reemplazados por el marcador UTF-8 de "
+                "reemplazo (U+FFFD), consistente con que el backend trata la "
+                "respuesta binaria como texto UTF-8 en algun punto del camino."
+            )
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True
