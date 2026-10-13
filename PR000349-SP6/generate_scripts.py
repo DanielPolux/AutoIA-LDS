@@ -533,11 +533,29 @@ capturar_paso(app, "datos_completos", paso_excel=3)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(2500)
 mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000)
-capturar_paso(app, "resultado_registro", paso_excel=5)
+app.wait_for_timeout(500)
 filas = filas_tabla(frame)
 texto_grilla = filas.first.inner_text() if filas.count() else ""
 encontrado = any("01" in filas.nth(i).inner_text() for i in range(filas.count()))
 assert encontrado, f"El Plan 01 deberia aparecer en la grilla tras registrar (mensaje visto: {mensaje!r})"
+# El formulario de alta no se limpia solo tras Aceptar (queda con los
+# mismos datos recien cargados) - Cancelar para volver a modo consulta,
+# pero eso TAMBIEN limpia el filtro de Encargo (queda "Seleccione un
+# Encargo..." y la grilla en "No hay datos") - hay que volver a elegir
+# 0001-FONAVI para que la evidencia final muestre la grilla real con
+# el Plan 01 ya agregado, en vez de la pantalla todavia en modo alta
+# o una grilla vacia por falta de filtro.
+boton_cancelar = frame.locator("button").filter(has_text=re.compile(r"^\\s*Cancelar\\s*$", re.I))
+if boton_cancelar.count():
+    boton_cancelar.first.click()
+    app.wait_for_timeout(800)
+campo_encargo_final = frame.locator(".ant-select-selector").first
+campo_encargo_final.click()
+app.wait_for_timeout(500)
+frame.get_by_text("0001 — FONAVI", exact=True).click()
+app.wait_for_load_state("networkidle")
+app.wait_for_timeout(1500)
+capturar_paso(app, "plan_agregado_en_grilla", paso_excel=5)
 ''')
 
 add("CP004", "app, frame = abrir_plan(page, paso_excel=2)", '''
