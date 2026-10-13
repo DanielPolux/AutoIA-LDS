@@ -2622,12 +2622,33 @@ assert "número de suministro es obligatorio" in mensaje.lower() or "numero de s
 ''')
 
 add("CP071", "app, frame = abrir_catastro(page, paso_excel=2)", '''
+# DEFECTO REAL CONFIRMADO 13/10/2026 (hallazgo del usuario): el
+# mensaje de "Suministro no existe" sale en un dialogo "Error de
+# Servicio" (tabs Mensaje Usuario/Mensaje Detallado, boton "Cerrar"
+# rojo) en vez de la "Ventana de Validacion" normal (azul, boton
+# "Aceptar") que usa el resto del proyecto para CUALQUIER otra
+# validacion esperada - confirmado comparando contra CP070 (la MISMA
+# pantalla, campo obligatorio, SI muestra Ventana de Validacion). Esto
+# indica que el backend lanza una excepcion no controlada en vez de
+# una respuesta de validacion normal (confirmado con captura de red:
+# POST .../api/catastro/ObtenerCatastro -> HTTP 404) - el usuario ve
+# un dialogo de "error del sistema" para lo que deberia ser un
+# resultado esperado y manejado ("no se encontro el registro").
 frame.locator(\'input[name="numeroSuministro"]\').fill("1")
 capturar_paso(app, "suministro_inexistente", paso_excel=2)
 frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
 app.wait_for_timeout(3000)
 mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_no_existe", paso_excel=4, timeout_ms=5000)
 assert "no existe" in mensaje.lower(), f"Se esperaba el mensaje de Suministro inexistente: {mensaje!r}"
+assert "validaci" in mensaje.lower(), (
+    "DEFECTO REAL: el mensaje de Suministro inexistente deberia "
+    "mostrarse en una Ventana de Validacion normal (como CUALQUIER "
+    "otra validacion del proyecto, ej. CP070 en esta misma pantalla), "
+    "no como \\'Error de Servicio\\' (el patron reservado para "
+    "excepciones no controladas del backend) - confirmado con captura "
+    "de red que el backend devuelve HTTP 404 en vez de una respuesta "
+    f"de validacion normal: {mensaje!r}"
+)
 ''')
 
 add("CP072", "app, frame = abrir_catastro(page, paso_excel=2)", '''
