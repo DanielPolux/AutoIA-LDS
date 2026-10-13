@@ -812,6 +812,36 @@ assert clave_primera >= clave_segunda, f"El listado deberia estar ordenado Año/
 ''')
 
 add("CP012", "app, frame = abrir_tipo_cambio(page, paso_excel=2)", '''
+# Idempotencia: si "Octubre 2026" ya existe (de una corrida anterior),
+# el Aceptar de mas abajo es rechazado como duplicado SIN que el script
+# se entere - confirmado en vivo: la pantalla queda en modo alta
+# (Aceptar/Cancelar, no Ingresar/Modificar/Eliminar) pero el assert de
+# "aparece en la grilla" pasaba igual porque el dato ya estaba ahi de
+# ANTES, dando un OK falso (no se registro nada en esta corrida). Se
+# elimina primero para que el registro de mas abajo sea siempre real.
+filas_previas = filas_tabla(frame)
+ya_existe = any("Octubre" in filas_previas.nth(i).inner_text() and "2026" in filas_previas.nth(i).inner_text() for i in range(filas_previas.count()))
+if ya_existe:
+    for i in range(filas_previas.count()):
+        if "Octubre" in filas_previas.nth(i).inner_text() and "2026" in filas_previas.nth(i).inner_text():
+            filas_previas.nth(i).click()
+            break
+    app.wait_for_timeout(500)
+    frame.get_by_role("button", name=re.compile(r"Eliminar", re.I)).click()
+    app.wait_for_timeout(1000)
+    dialogo_borrado = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+    dialogo_borrado.first.wait_for(state="visible", timeout=5000)
+    for _intento_borrado in range(3):
+        boton_aceptar_borrado = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S)).first.get_by_role("button", name=re.compile(r"^\\s*Aceptar\\s*$", re.I))
+        if boton_aceptar_borrado.count():
+            boton_aceptar_borrado.first.click()
+        app.wait_for_timeout(2000)
+        filas_tras_borrado = filas_tabla(frame)
+        if not any("Octubre" in filas_tras_borrado.nth(i).inner_text() and "2026" in filas_tras_borrado.nth(i).inner_text() for i in range(filas_tras_borrado.count())):
+            break
+    confirmar_dialogo_si_aparece(app, frame, timeout_ms=4000)
+    app.wait_for_timeout(500)
+
 frame.get_by_role("button", name=re.compile(r"Ingresar", re.I)).click()
 app.wait_for_timeout(600)
 combo_mes = frame.locator(".ant-select-selector").first
