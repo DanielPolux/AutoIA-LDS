@@ -54,7 +54,7 @@ except ValueError:
 
 URL = "https://pldsweb.luzdelsur.com.pe/Plataforma/PlataformaWeb"
 USUARIO = "SCASTI_DW"
-PASSWORD = "Soporte2025$5"
+PASSWORD = "Melquisedec_01"
 
 CASO = "CP222"
 EVIDENCIA = Path(__file__).resolve().parent / CASO
@@ -239,6 +239,25 @@ def esperar_fin_de_carga(app, pantalla, timeout_ms=45000):
         app.wait_for_load_state("networkidle", timeout=10000)
     except PWTimeoutError:
         pass
+    # Espera adicional: algunas grillas (confirmado en vivo 08/10/2026,
+    # PR000326-SP2 Asignacion/Reasignacion de Reclamos con cientos de
+    # registros) usan un mat-spinner/mat-progress-spinner que ni el boton
+    # 'Cargando...' ni networkidle detectan -el request ya respondio pero
+    # el render de la grilla en pantalla sigue en curso varios segundos
+    # mas, a veces 30s+-. Sin esto la captura/lectura caia a mitad de
+    # render (grilla vacia pese a que la API ya habia devuelto datos
+    # reales). Se espera activamente (hasta timeout_ms) a que el spinner
+    # desaparezca; si la pantalla no usa este tipo de spinner (el caso mas
+    # comun) is_visible() da False de entrada y esto no agrega demora.
+    plazo = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < plazo:
+        try:
+            spinner_visible = pantalla.locator("mat-spinner, mat-progress-spinner, .mat-spinner, .mat-progress-spinner, .app-loading-overlay, .app-loading-spinner, [role='progressbar']").first.is_visible()
+        except Exception:
+            spinner_visible = False
+        if not spinner_visible:
+            break
+        app.wait_for_timeout(300)
     app.wait_for_timeout(500)
 
 
@@ -715,7 +734,17 @@ def main():
             mensaje = frame.get_by_text("No se encontró el reclamo 'RE999999-WEB-2026'.", exact=True)
             mensaje.wait_for(state="visible", timeout=10000)
             capturar_paso(app, "codigo_no_encontrado", paso_excel=4)
-            frame.locator("app-alert").get_by_role("button", name="Aceptar", exact=True).click()
+            # CONFIRMADO EN VIVO 08/10/2026: el boton del dialogo de error ya no se
+            # llama "Aceptar" - ahora dice "Cerrar" (cambio real de UI, el mensaje
+            # de error en si no cambio). Ademas, el locator scoped a "app-alert"
+            # nunca se vuelve visible (hay una instancia de ese tag en el DOM que
+            # no es la que realmente se ve en pantalla, probable overlay/portal
+            # fuera de ese contenedor) - se busca el boton directo en el frame. OJO:
+            # get_by_role("button", name="Cerrar") da "strict mode violation" -
+            # matchea TANTO el boton real de texto "Cerrar" COMO el icono "X" de
+            # cerrar la esquina (que tiene aria-label="Cerrar" pero sin texto
+            # visible) - se usa get_by_text para matchear solo el boton de texto.
+            frame.get_by_text("Cerrar", exact=True).click()
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

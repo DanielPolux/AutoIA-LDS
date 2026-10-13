@@ -10,7 +10,7 @@ Resultado esperado: Con FOCONS='00S000': Energía y Lectura Reactiva-Capacitiva 
 Pasos a seguir:
 1. Ingresar a la plataforma web LDS. 2. Ingresar a la aplicación CORRECCIÓN DE LECTURAS MAXÍMETROS. 3. Buscar y seleccionar una lectura de Libro "C" con FOCONS='00S000'. 4. Verificar que Energía y Reactiva-Capacitiva quedan habilitados. 5. Repetir con una lectura con FOCONS='S00000'. 6. Verificar que solo Energía queda habilitado.
 """
-import os, re, shutil, struct, subprocess, time, zipfile
+import json, os, re, shutil, struct, subprocess, time, zipfile
 from datetime import date, timedelta
 from pathlib import Path
 from xml.sax.saxutils import escape as _escape_xml
@@ -66,6 +66,18 @@ EVIDENCIA = Path(__file__).resolve().parent / CASO
 if EVIDENCIA.exists():
     shutil.rmtree(EVIDENCIA, ignore_errors=True)
 EVIDENCIA.mkdir(parents=True, exist_ok=True)
+
+# Un caso listado en casos_fallidos_confirmados.json es un DEFECTO REAL ya
+# verificado (no un bug de automatizacion) - el FALLO en si es la prueba
+# del defecto, asi que igual merece video/Word completos (patron ya usado
+# en PR000349-SP4 CP018, ver memoria del framework).
+_CASOS_FALLIDOS_CONFIRMADOS_PATH = Path(__file__).resolve().parent / "casos_fallidos_confirmados.json"
+_ES_DEFECTO_CONFIRMADO = False
+if _CASOS_FALLIDOS_CONFIRMADOS_PATH.exists():
+    try:
+        _ES_DEFECTO_CONFIRMADO = CASO in json.loads(_CASOS_FALLIDOS_CONFIRMADOS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
 
 NOMBRE_CASO = 'Habilitación asimétrica de campos según combinación de posiciones de la cadena FOCONS'
 RF_CASO = 'RF-03'
@@ -720,7 +732,7 @@ def main():
             video_portal = page.video
             video_app = app.video if app else None
             browser.close()
-            if _CASO_OK:
+            if _CASO_OK or _ES_DEFECTO_CONFIRMADO:
                 ruta_portal = _renombrar_video(video_portal, EVIDENCIA / f"{CASO}-1.webm") if video_portal is not None else None
                 ruta_app = _renombrar_video(video_app, EVIDENCIA / f"{CASO}-2.webm") if video_app is not None else None
                 rutas_videos = [r for r in (ruta_portal, ruta_app) if r is not None]

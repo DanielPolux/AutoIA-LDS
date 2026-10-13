@@ -10,7 +10,7 @@ Resultado esperado: El modal de historial de auditoría se abre correctamente, m
 Pasos a seguir:
 1. Ingresar a la plataforma web LDS. 2. Ingresar a la aplicación CONSULTA DE LECTURAS DE MAXÍMETRO. 3. Presionar el botón Ver Auditoría. 4. Verificar que el modal muestra los filtros Fecha de Corrección, Número de Cliente y Rol. 5. Aplicar el filtro Fecha de Corrección con un valor conocido y revisar FILA POR FILA la columna "Fecha Corrección" de todos los registros devueltos, confirmando que coincide exactamente con la fecha filtrada (si aparece una sola fila con otra fecha, el caso falla, aunque la grilla traiga resultados). 6. Aplicar el filtro Número de Cliente con un valor conocido y revisar fila por fila que la columna correspondiente coincide exactamente con el valor filtrado. 7. Aplicar el filtro Rol con un valor conocido y revisar fila por fila que la columna correspondiente coincide exactamente con el valor filtrado. 8. Verificar que está disponible la opción de descargar el listado en PDF.
 """
-import os, re, shutil, struct, subprocess, time, zipfile
+import json, os, re, shutil, struct, subprocess, time, zipfile
 from datetime import date, timedelta
 from pathlib import Path
 from xml.sax.saxutils import escape as _escape_xml
@@ -66,6 +66,18 @@ EVIDENCIA = Path(__file__).resolve().parent / CASO
 if EVIDENCIA.exists():
     shutil.rmtree(EVIDENCIA, ignore_errors=True)
 EVIDENCIA.mkdir(parents=True, exist_ok=True)
+
+# Un caso listado en casos_fallidos_confirmados.json es un DEFECTO REAL ya
+# verificado (no un bug de automatizacion) - el FALLO en si es la prueba
+# del defecto, asi que igual merece video/Word completos (patron ya usado
+# en PR000349-SP4 CP018, ver memoria del framework).
+_CASOS_FALLIDOS_CONFIRMADOS_PATH = Path(__file__).resolve().parent / "casos_fallidos_confirmados.json"
+_ES_DEFECTO_CONFIRMADO = False
+if _CASOS_FALLIDOS_CONFIRMADOS_PATH.exists():
+    try:
+        _ES_DEFECTO_CONFIRMADO = CASO in json.loads(_CASOS_FALLIDOS_CONFIRMADOS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
 
 NOMBRE_CASO = 'Acceso al historial de auditoría'
 RF_CASO = 'RF-04'
@@ -720,7 +732,7 @@ def main():
             video_portal = page.video
             video_app = app.video if app else None
             browser.close()
-            if _CASO_OK:
+            if _CASO_OK or _ES_DEFECTO_CONFIRMADO:
                 ruta_portal = _renombrar_video(video_portal, EVIDENCIA / f"{CASO}-1.webm") if video_portal is not None else None
                 ruta_app = _renombrar_video(video_app, EVIDENCIA / f"{CASO}-2.webm") if video_app is not None else None
                 rutas_videos = [r for r in (ruta_portal, ruta_app) if r is not None]

@@ -10,7 +10,7 @@ Resultado esperado: Los campos Tipo, Marca, N.° Medidor, Factor, E, D, CD y CM 
 Pasos a seguir:
 1. Ingresar a la plataforma web LDS. 2. Ingresar a la aplicación CORRECCIÓN DE LECTURAS DE FACTURACIÓN. 3. Cargar el formulario con un suministro válido. 4. Verificar que los campos Tipo, Marca, N.° Medidor, Factor, E, D, CD y CM de la sección Medidores a Instalar están precargados y no son editables. 5. Cargar (o recargar) el formulario con un evento cuya Acción a Realizar precargada sea C (o I) para un tipo de medidor, y verificar que el campo Lect. Inicial de esa fila se habilita para edición. 6. Cargar (o recargar) el formulario con un evento cuya Acción a Realizar precargada sea P (o R) para un tipo de medidor, y verificar que el campo Lect. Inicial de esa fila permanece en solo lectura.
 """
-import os, re, shutil, struct, subprocess, time, zipfile
+import json, os, re, shutil, struct, subprocess, time, zipfile
 from datetime import date, timedelta
 from pathlib import Path
 from xml.sax.saxutils import escape as _escape_xml
@@ -66,6 +66,18 @@ EVIDENCIA = Path(__file__).resolve().parent / CASO
 if EVIDENCIA.exists():
     shutil.rmtree(EVIDENCIA, ignore_errors=True)
 EVIDENCIA.mkdir(parents=True, exist_ok=True)
+
+# Un caso listado en casos_fallidos_confirmados.json es un DEFECTO REAL ya
+# verificado (no un bug de automatizacion) - el FALLO en si es la prueba
+# del defecto, asi que igual merece video/Word completos (patron ya usado
+# en PR000349-SP4 CP018, ver memoria del framework).
+_CASOS_FALLIDOS_CONFIRMADOS_PATH = Path(__file__).resolve().parent / "casos_fallidos_confirmados.json"
+_ES_DEFECTO_CONFIRMADO = False
+if _CASOS_FALLIDOS_CONFIRMADOS_PATH.exists():
+    try:
+        _ES_DEFECTO_CONFIRMADO = CASO in json.loads(_CASOS_FALLIDOS_CONFIRMADOS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
 
 NOMBRE_CASO = 'Editabilidad condicional del campo Lect. Inicial en Medidores a Instalar'
 RF_CASO = 'RF-05'
@@ -705,7 +717,41 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP035 (RF-05 - Editabilidad condicional del campo Lect. Inicial en Medidores a Instalar): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf05(page, paso_excel=1)
+
+            frame.locator("input").first.fill("15254")
+            app.wait_for_timeout(500)
+            frame.get_by_role("button", name=re.compile(r"^\s*Leer\s*$")).click()
+            app.wait_for_timeout(2500)
+            capturar_paso(app, "suministro_accion_promedio_cargado", paso_excel=3)
+
+            campos_no_editables = frame.locator("table").nth(1).locator("tbody tr").first.locator("input")
+            for i in range(1, campos_no_editables.count()):
+                clase = campos_no_editables.nth(i).get_attribute("class") or ""
+                assert "ro" in clase.split(), f"El campo de solo lectura (indice {i}) de Medidores a Instalar deberia tener clase ro: {clase!r}"
+
+            lect_inicial_promedio = frame.locator('input[aria-label="Lect. Inicial Activa"]')
+            clase_promedio = lect_inicial_promedio.get_attribute("class") or ""
+            assert "ro" in clase_promedio.split(), (
+                f"Con Accion=Promedio (P), Lect. Inicial deberia permanecer en solo lectura, clase real: {clase_promedio!r}"
+            )
+            capturar_paso(app, "lect_inicial_solo_lectura_con_promedio", paso_excel=6)
+
+            frame.get_by_role("button", name=re.compile(r"^\s*Cancelar\s*$")).click()
+            app.wait_for_timeout(800)
+
+            frame.locator("input").first.fill("24869")
+            app.wait_for_timeout(500)
+            frame.get_by_role("button", name=re.compile(r"^\s*Leer\s*$")).click()
+            app.wait_for_timeout(2500)
+            capturar_paso(app, "suministro_accion_cambio_cargado", paso_excel=5)
+
+            lect_inicial_cambio = frame.locator('input[aria-label="Lect. Inicial Activa"]')
+            clase_cambio = lect_inicial_cambio.get_attribute("class") or ""
+            assert "ro" not in clase_cambio.split(), (
+                f"Con Accion=Cambio (C), Lect. Inicial deberia habilitarse para edicion, clase real: {clase_cambio!r}"
+            )
+            capturar_paso(app, "lect_inicial_editable_con_cambio", paso_excel=6)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True
@@ -720,7 +766,7 @@ def main():
             video_portal = page.video
             video_app = app.video if app else None
             browser.close()
-            if _CASO_OK:
+            if _CASO_OK or _ES_DEFECTO_CONFIRMADO:
                 ruta_portal = _renombrar_video(video_portal, EVIDENCIA / f"{CASO}-1.webm") if video_portal is not None else None
                 ruta_app = _renombrar_video(video_app, EVIDENCIA / f"{CASO}-2.webm") if video_app is not None else None
                 rutas_videos = [r for r in (ruta_portal, ruta_app) if r is not None]

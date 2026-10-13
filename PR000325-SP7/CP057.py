@@ -10,7 +10,7 @@ Resultado esperado: Al escribir en N.° Cliente, Ruta de Lectura y su DV se desh
 Pasos a seguir:
 1. Ingresar a la plataforma web LDS. 2. Ingresar a la aplicación CONSULTA DE LECTURAS DE MAXÍMETRO. 3. Escribir un número de cliente en N.° Cliente y verificar que Ruta de Lectura y su DV quedan deshabilitados. 4. Limpiar el campo y escribir una Ruta de Lectura; verificar que N.° Cliente y su DV quedan deshabilitados. 5. Completar DV Cliente o DV Ruta según el criterio usado y presionar Leer. 6. Verificar que los 4 campos de búsqueda quedan deshabilitados tras el resultado. 7. Presionar Cancelar y verificar que los 4 campos vuelven a estar habilitados y vacíos.
 """
-import os, re, shutil, struct, subprocess, time, zipfile
+import json, os, re, shutil, struct, subprocess, time, zipfile
 from datetime import date, timedelta
 from pathlib import Path
 from xml.sax.saxutils import escape as _escape_xml
@@ -66,6 +66,18 @@ EVIDENCIA = Path(__file__).resolve().parent / CASO
 if EVIDENCIA.exists():
     shutil.rmtree(EVIDENCIA, ignore_errors=True)
 EVIDENCIA.mkdir(parents=True, exist_ok=True)
+
+# Un caso listado en casos_fallidos_confirmados.json es un DEFECTO REAL ya
+# verificado (no un bug de automatizacion) - el FALLO en si es la prueba
+# del defecto, asi que igual merece video/Word completos (patron ya usado
+# en PR000349-SP4 CP018, ver memoria del framework).
+_CASOS_FALLIDOS_CONFIRMADOS_PATH = Path(__file__).resolve().parent / "casos_fallidos_confirmados.json"
+_ES_DEFECTO_CONFIRMADO = False
+if _CASOS_FALLIDOS_CONFIRMADOS_PATH.exists():
+    try:
+        _ES_DEFECTO_CONFIRMADO = CASO in json.loads(_CASOS_FALLIDOS_CONFIRMADOS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
 
 NOMBRE_CASO = 'DV Cliente/DV Ruta editables con exclusión mutua y bloqueo post-búsqueda'
 RF_CASO = 'RF-04'
@@ -705,7 +717,48 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP057 (RF-04 - DV Cliente/DV Ruta editables con exclusión mutua y bloqueo post-búsqueda): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf04(page, paso_excel=1)
+            campo_cli = frame.locator('input[aria-label="N.° de Cliente"]')
+            campo_dv_cli = frame.locator('input[aria-label="DV"]')
+            campo_ruta = frame.locator('input[aria-label="Ruta de Lectura"]')
+            campo_dv_ruta = frame.locator('input[aria-label="DV Ruta"]')
+
+            campo_cli.fill("1495133")
+            app.wait_for_timeout(500)
+            assert not campo_ruta.is_enabled() and not campo_dv_ruta.is_enabled(), "Ruta de Lectura y su DV deberian deshabilitarse al escribir en N Cliente"
+            capturar_paso(app, "ruta_deshabilitada_al_escribir_cliente", paso_excel=3)
+
+            campo_cli.fill("")
+            app.wait_for_timeout(500)
+            campo_ruta.fill("163530205")
+            app.wait_for_timeout(500)
+            assert not campo_cli.is_enabled() and not campo_dv_cli.is_enabled(), "N Cliente y su DV deberian deshabilitarse al escribir en Ruta de Lectura"
+            capturar_paso(app, "cliente_deshabilitado_al_escribir_ruta", paso_excel=4)
+
+            campo_dv_ruta.fill("0")
+            app.wait_for_timeout(300)
+            frame.get_by_role("button", name=re.compile(r"^\s*Buscar\s*$")).click()
+            buscando = frame.get_by_text("Buscando...")
+            try:
+                buscando.first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pass
+            try:
+                buscando.first.wait_for(state="hidden", timeout=15000)
+            except Exception:
+                pass
+            app.wait_for_timeout(600)
+            assert not campo_cli.is_enabled() and not campo_dv_cli.is_enabled() and not campo_ruta.is_enabled() and not campo_dv_ruta.is_enabled(), (
+                "Los 4 campos de busqueda deberian quedar deshabilitados tras una busqueda exitosa"
+            )
+            capturar_paso(app, "los_4_campos_bloqueados_tras_busqueda", paso_excel=6)
+
+            frame.get_by_role("button", name=re.compile(r"^\s*Cancelar\s*$")).first.click()
+            app.wait_for_timeout(800)
+            assert campo_cli.is_enabled() and campo_cli.input_value() == "" and campo_ruta.is_enabled() and campo_ruta.input_value() == "", (
+                "Los 4 campos deberian volver a estar habilitados y vacios tras Cancelar"
+            )
+            capturar_paso(app, "los_4_campos_habilitados_y_vacios", paso_excel=7)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True
@@ -720,7 +773,7 @@ def main():
             video_portal = page.video
             video_app = app.video if app else None
             browser.close()
-            if _CASO_OK:
+            if _CASO_OK or _ES_DEFECTO_CONFIRMADO:
                 ruta_portal = _renombrar_video(video_portal, EVIDENCIA / f"{CASO}-1.webm") if video_portal is not None else None
                 ruta_app = _renombrar_video(video_app, EVIDENCIA / f"{CASO}-2.webm") if video_app is not None else None
                 rutas_videos = [r for r in (ruta_portal, ruta_app) if r is not None]

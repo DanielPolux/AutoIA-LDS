@@ -230,7 +230,7 @@ def render(caso: dict) -> str:
 CASES = []
 
 
-def add(cp, body, usuario="SCASTI_DW", password="Soporte2025$5"):
+def add(cp, body, usuario="SCASTI_DW", password="Melquisedec_01"):
     m = MATRIZ[cp]
     CASES.append(dict(
         cp=cp, rf=m["rf"], cu=m["cu"], name=m["name"], desc=m["desc"],

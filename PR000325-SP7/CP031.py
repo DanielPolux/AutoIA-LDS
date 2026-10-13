@@ -10,7 +10,7 @@ Resultado esperado: El sistema carga los datos del evento de cambio de medidor m
 Pasos a seguir:
 1. Ingresar a la plataforma web LDS. 2. Ingresar a la aplicación CORRECCIÓN DE LECTURAS DE FACTURACIÓN. 3. Ingresar el número de suministro con cambio de medidor registrado. 4. Presionar Leer. 5. Verificar que las tres secciones del formulario se cargan con los datos del evento más reciente.
 """
-import os, re, shutil, struct, subprocess, time, zipfile
+import json, os, re, shutil, struct, subprocess, time, zipfile
 from datetime import date, timedelta
 from pathlib import Path
 from xml.sax.saxutils import escape as _escape_xml
@@ -66,6 +66,18 @@ EVIDENCIA = Path(__file__).resolve().parent / CASO
 if EVIDENCIA.exists():
     shutil.rmtree(EVIDENCIA, ignore_errors=True)
 EVIDENCIA.mkdir(parents=True, exist_ok=True)
+
+# Un caso listado en casos_fallidos_confirmados.json es un DEFECTO REAL ya
+# verificado (no un bug de automatizacion) - el FALLO en si es la prueba
+# del defecto, asi que igual merece video/Word completos (patron ya usado
+# en PR000349-SP4 CP018, ver memoria del framework).
+_CASOS_FALLIDOS_CONFIRMADOS_PATH = Path(__file__).resolve().parent / "casos_fallidos_confirmados.json"
+_ES_DEFECTO_CONFIRMADO = False
+if _CASOS_FALLIDOS_CONFIRMADOS_PATH.exists():
+    try:
+        _ES_DEFECTO_CONFIRMADO = CASO in json.loads(_CASOS_FALLIDOS_CONFIRMADOS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
 
 NOMBRE_CASO = 'Búsqueda exitosa con evento de cambio de medidor'
 RF_CASO = 'RF-05'
@@ -705,7 +717,19 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP031 (RF-05 - Búsqueda exitosa con evento de cambio de medidor): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf05(page, paso_excel=1)
+            frame.locator("input").first.fill("15254")
+            app.wait_for_timeout(500)
+            capturar_paso(app, "suministro_con_cambio_medidor_ingresado", paso_excel=3)
+
+            frame.get_by_role("button", name=re.compile(r"^\s*Leer\s*$")).click()
+            app.wait_for_timeout(2500)
+
+            texto = frame.locator("body").inner_text()
+            assert "3235263" in texto, f"No se cargo el Nro. Orden real esperado del evento: {texto[-400:]!r}"
+            assert "55095741" in texto, f"No se cargaron los medidores reales del evento en la grilla: {texto[-400:]!r}"
+            assert "ACTICOME" in texto, f"No se cargo el Origen real esperado del evento: {texto[-400:]!r}"
+            capturar_paso(app, "tres_secciones_cargadas_con_evento_real", paso_excel=5)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True
@@ -720,7 +744,7 @@ def main():
             video_portal = page.video
             video_app = app.video if app else None
             browser.close()
-            if _CASO_OK:
+            if _CASO_OK or _ES_DEFECTO_CONFIRMADO:
                 ruta_portal = _renombrar_video(video_portal, EVIDENCIA / f"{CASO}-1.webm") if video_portal is not None else None
                 ruta_app = _renombrar_video(video_app, EVIDENCIA / f"{CASO}-2.webm") if video_app is not None else None
                 rutas_videos = [r for r in (ruta_portal, ruta_app) if r is not None]

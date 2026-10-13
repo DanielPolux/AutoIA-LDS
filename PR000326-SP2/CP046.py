@@ -54,7 +54,7 @@ except ValueError:
 
 URL = "https://pldsweb.luzdelsur.com.pe/Plataforma/PlataformaWeb"
 USUARIO = "SCASTI_DW"
-PASSWORD = "Soporte2025$5"
+PASSWORD = "Melquisedec_01"
 
 CASO = "CP046"
 EVIDENCIA = Path(__file__).resolve().parent / CASO
@@ -239,6 +239,25 @@ def esperar_fin_de_carga(app, pantalla, timeout_ms=45000):
         app.wait_for_load_state("networkidle", timeout=10000)
     except PWTimeoutError:
         pass
+    # Espera adicional: algunas grillas (confirmado en vivo 08/10/2026,
+    # PR000326-SP2 Asignacion/Reasignacion de Reclamos con cientos de
+    # registros) usan un mat-spinner/mat-progress-spinner que ni el boton
+    # 'Cargando...' ni networkidle detectan -el request ya respondio pero
+    # el render de la grilla en pantalla sigue en curso varios segundos
+    # mas, a veces 30s+-. Sin esto la captura/lectura caia a mitad de
+    # render (grilla vacia pese a que la API ya habia devuelto datos
+    # reales). Se espera activamente (hasta timeout_ms) a que el spinner
+    # desaparezca; si la pantalla no usa este tipo de spinner (el caso mas
+    # comun) is_visible() da False de entrada y esto no agrega demora.
+    plazo = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < plazo:
+        try:
+            spinner_visible = pantalla.locator("mat-spinner, mat-progress-spinner, .mat-spinner, .mat-progress-spinner, .app-loading-overlay, .app-loading-spinner, [role='progressbar']").first.is_visible()
+        except Exception:
+            spinner_visible = False
+        if not spinner_visible:
+            break
+        app.wait_for_timeout(300)
     app.wait_for_timeout(500)
 
 
@@ -707,17 +726,21 @@ def main():
             login(page, paso_excel=1)
             app, frame = abrir_reasignacion(page, paso_excel=2)
 
-            # CONFIRMADO EN VIVO 24/09/2026 (_exploracion/explore_33_fecha_registro_cp046.py):
-            # los 2 reclamos reales de ISE tienen F. Registro muy antigua (2001-04-14
-            # y 2003-03-19, dias rest. -6608/-6106) - NO caen dentro del rango
-            # 01/09-24/09/2026 del proyecto. El filtro de fechas SI filtra por fecha
-            # de inicio real (no por fecha de busqueda), asi que el rango debe
-            # incluir esos anios para seguir viendo los mismos reclamos.
+            # CONFIRMADO EN VIVO 08/10/2026 (_exploracion/explore_157_cp046_filtro_fechas.py,
+            # capturando la respuesta real de ListarReclamosParaReasignar): el filtro
+            # de fechas SI funciona correctamente (filtra por F. Registro real) - la
+            # estacion por defecto ("Coordinación Reclamos") trae reclamos reales con
+            # fechas desde 2004 hasta hoy, y un rango 1990-2026 los cubre a TODOS por
+            # igual (de ahi que antes pareciera "igual sin filtrar", quedo confirmado
+            # que es el comportamiento correcto, no un bug). Patron de codigo
+            # ampliado (RCL-/RE.../REC...) aplicado consistente en las 3 comparaciones,
+            # mismo fix que CP038/CP068.
+            patron_codigo = re.compile(r"\b(?:RCL-\d+|RE[A-Z]?\d+-[A-Z]+-\d{4})\b")
             capturar_paso(app, "antes_de_buscar_sin_fechas", paso_excel=3)
             frame.get_by_role("button", name="Buscar", exact=True).click()
             esperar_fin_de_carga(app, frame)
             capturar_paso(app, "resultado_sin_fechas", paso_excel=3)
-            codigos_sin_fechas = set(re.findall(r"RCL-\d+", frame.locator("table tbody").inner_text()))
+            codigos_sin_fechas = set(patron_codigo.findall(frame.locator("table tbody").inner_text()))
             assert len(codigos_sin_fechas) > 0, "Se esperaba al menos 1 reclamo real sin filtrar por fechas"
             campo_desde = frame.get_by_label(re.compile("^Desde$", re.I))
             campo_hasta = frame.get_by_label(re.compile("^Hasta$", re.I))
@@ -727,7 +750,7 @@ def main():
             frame.get_by_role("button", name="Buscar", exact=True).click()
             esperar_fin_de_carga(app, frame)
             capturar_paso(app, "resultado_rango_amplio", paso_excel=6)
-            codigos_rango_amplio = set(re.findall(r"RCL-\d+", frame.locator("table tbody").inner_text()))
+            codigos_rango_amplio = set(patron_codigo.findall(frame.locator("table tbody").inner_text()))
             assert codigos_rango_amplio == codigos_sin_fechas, f"Con un rango que cubre 1990-2026 deberian seguir los mismos reclamos: {codigos_rango_amplio} vs {codigos_sin_fechas}"
             campo_desde.fill("2020-01-01")
             campo_hasta.fill("2026-09-24")
@@ -735,8 +758,23 @@ def main():
             frame.get_by_role("button", name="Buscar", exact=True).click()
             esperar_fin_de_carga(app, frame)
             capturar_paso(app, "resultado_rango_reciente_sin_datos", paso_excel=6)
-            codigos_rango_reciente = set(re.findall(r"RCL-\d+", frame.locator("table tbody").inner_text()))
-            assert codigos_rango_reciente == set(), f"Un rango que excluye 2001/2003 no deberia traer estos reclamos antiguos: {codigos_rango_reciente}"
+            # CONFIRMADO EN VIVO 08/10/2026: con la estacion por defecto, un rango
+            # 2020-2026 NO da vacio (SI hay reclamos reales de 2021/2022) - el
+            # assert original asumia "vacio" porque se escribio pensando solo en los
+            # 2 reclamos viejos de ISE (2001/2003). Tampoco sirve comparar el SET
+            # COMPLETO contra "sin fechas": la grilla pagina a 10 filas, asi que al
+            # excluirse los viejos del lado del servidor, otros reclamos recientes
+            # que antes estaban en la pagina 2 entran a la pagina 1 y rompen una
+            # comparacion de conjuntos completos (confirmado en vivo con una corrida
+            # real: mismo tamaño 10 en ambos casos, pero no exactamente el mismo
+            # conjunto, por pura paginacion). Chequeo robusto: los 2 reclamos viejos
+            # conocidos (RCL-0083049/2004, REC07137-ESC-2019) NO deben aparecer en
+            # el rango reciente, sin importar paginacion del resto.
+            codigos_rango_reciente = set(patron_codigo.findall(frame.locator("table tbody").inner_text()))
+            assert len(codigos_rango_reciente) > 0, "Se esperaba al menos 1 reclamo real en el rango reciente (2020-2026)"
+            codigos_viejos_conocidos = {"RCL-0083049", "REC07137-ESC-2019"}
+            interseccion = codigos_rango_reciente & codigos_viejos_conocidos
+            assert not interseccion, f"El rango reciente (2020-2026) no deberia incluir estos reclamos viejos: {interseccion}"
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

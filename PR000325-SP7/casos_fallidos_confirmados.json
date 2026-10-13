@@ -1,0 +1,17 @@
+{
+  "CP006": {
+    "motivo": "DEFECTO REAL: el modal 'Ver Auditoria' de RF-01 (Correccion De Lecturas Ordinarias) responde siempre con HTTP 500 en POST .../comercial/facturacion/geslectu/corrlecordi/web/api/corrlecordi/CorrLecOrdi/ListarAuditoria, sin importar el criterio de busqueda usado (probado los 3: Fecha de Correccion, Numero de Cliente, Rol - los 3 dan 500). La UI muestra un segundo modal apilado 'Error de Servicio' / 'Hubo un error al consultar el historial de auditoria.' que al principio parecia un bug de overlay/'<nz-modal-container> intercepta clicks' (ver gotcha #4 de feedback_gotchas_playwright_web_lds), pero investigando la respuesta de red real se confirmo que es un HTTP 500 genuino del backend, no un problema de automatizacion. Bloquea tambien CP044 (descarga PDF de esta misma auditoria) y CP045 (filtros Sector/Zona de esta misma auditoria), que dependen del mismo endpoint roto.",
+    "fecha_verificacion": "2026-10-07",
+    "evidencia": "PR000325-SP7 RF-01, CP006.py (video+Word con el flujo completo hasta el error, probando los 3 criterios), _exploracion/explore_14_rf01_cp006_segundo_modal.py y explore_17_rf01_cp006_todos.py (captura de las respuestas HTTP 500 reales de ListarAuditoria para los 3 criterios)"
+  },
+  "CP044": {
+    "motivo": "DEFECTO REAL (mismo origen que CP006): 'Descargar PDF' del modal 'Ver Auditoria' de RF-01 nunca llega a habilitarse/usarse porque el paso previo obligatorio -aplicar un criterio de busqueda que devuelva al menos un registro- nunca se completa: ListarAuditoria responde siempre HTTP 500 (ver CP006). El caso no puede llegar a su 'esperado' (descargar un .pdf y comparar su encabezado/detalle contra la grilla) porque la grilla nunca se puebla con datos reales.",
+    "fecha_verificacion": "2026-10-07",
+    "evidencia": "PR000325-SP7 RF-01, CP044.py (video+Word con el flujo completo hasta el error de busqueda), mismo HTTP 500 de ListarAuditoria documentado en CP006"
+  },
+  "CP045": {
+    "motivo": "DEFECTO REAL (mismo origen que CP006): la combinacion de filtros opcionales Sector/Zona en el modal de 'Ver Auditoria' de RF-01 nunca se puede verificar porque la busqueda misma (con o sin Sector/Zona) responde siempre HTTP 500 en ListarAuditoria (ver CP006) - el caso no puede llegar a comparar grilla filtrada vs sin filtrar porque ninguna de las dos busquedas devuelve datos reales.",
+    "fecha_verificacion": "2026-10-07",
+    "evidencia": "PR000325-SP7 RF-01, CP045.py (video+Word con el flujo completo hasta el error de busqueda, con Sector/Zona de la ruta real 16/353 del cliente 1495133), mismo HTTP 500 de ListarAuditoria documentado en CP006"
+  }
+}

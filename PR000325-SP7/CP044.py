@@ -10,7 +10,7 @@ Resultado esperado: El sistema descarga un archivo con extensión .pdf (nunca .x
 Pasos a seguir:
 1. Ingresar a la plataforma web LDS. 2. Ingresar a la aplicación CORRECCIÓN DE LECTURAS ORDINARIAS. 3. Presionar el botón Ver Auditoría. 4. Aplicar un criterio de búsqueda (Fecha, Número de Cliente o Rol) que devuelva al menos un registro. 5. Presionar el botón Descargar PDF. 6. Verificar que el archivo descargado tiene extensión .pdf. 7. Abrir el PDF y verificar que el encabezado (empresa, rol, estación, fecha) y el detalle de registros coinciden con la grilla filtrada.
 """
-import os, re, shutil, struct, subprocess, time, zipfile
+import json, os, re, shutil, struct, subprocess, time, zipfile
 from datetime import date, timedelta
 from pathlib import Path
 from xml.sax.saxutils import escape as _escape_xml
@@ -66,6 +66,18 @@ EVIDENCIA = Path(__file__).resolve().parent / CASO
 if EVIDENCIA.exists():
     shutil.rmtree(EVIDENCIA, ignore_errors=True)
 EVIDENCIA.mkdir(parents=True, exist_ok=True)
+
+# Un caso listado en casos_fallidos_confirmados.json es un DEFECTO REAL ya
+# verificado (no un bug de automatizacion) - el FALLO en si es la prueba
+# del defecto, asi que igual merece video/Word completos (patron ya usado
+# en PR000349-SP4 CP018, ver memoria del framework).
+_CASOS_FALLIDOS_CONFIRMADOS_PATH = Path(__file__).resolve().parent / "casos_fallidos_confirmados.json"
+_ES_DEFECTO_CONFIRMADO = False
+if _CASOS_FALLIDOS_CONFIRMADOS_PATH.exists():
+    try:
+        _ES_DEFECTO_CONFIRMADO = CASO in json.loads(_CASOS_FALLIDOS_CONFIRMADOS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
 
 NOMBRE_CASO = 'Descarga de PDF del historial de auditoría'
 RF_CASO = 'RF-01'
@@ -705,7 +717,31 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP044 (RF-01 - Descarga de PDF del historial de auditoría): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf01(page, paso_excel=1)
+            frame.get_by_role("button", name=re.compile(r"^\s*Ver Auditor.a\s*$")).click()
+            app.wait_for_timeout(1500)
+
+            radios = frame.locator("input[type=\'radio\']")
+            radios.nth(1).click(force=True)
+            app.wait_for_timeout(500)
+            campo_valor = frame.locator('input[aria-label="Valor de búsqueda"]')
+            campo_valor.fill("1495133")
+            app.wait_for_timeout(300)
+            capturar_paso(app, "criterio_cliente_con_registro_conocido_ingresado", paso_excel=4)
+
+            boton_descargar_antes = frame.get_by_role("button", name=re.compile(r"^\s*Descargar PDF\s*$"))
+            assert not boton_descargar_antes.is_enabled(), "Descargar PDF no deberia estar habilitado antes de una busqueda exitosa"
+
+            frame.get_by_role("button", name=re.compile(r"^\s*Leer\s*$")).last.click()
+            app.wait_for_timeout(2000)
+            modal_error = frame.locator("nz-modal-container").nth(1)
+            capturar_paso(app, "DEFECTO_error_500_bloquea_busqueda_previa_a_pdf", paso_excel=5)
+            resultado = modal_error.inner_text() if modal_error.is_visible() else None
+            assert not modal_error.is_visible(), (
+                "DEFECTO CONFIRMADO (ver casos_fallidos_confirmados.json): se esperaba que la busqueda devolviera "
+                "al menos 1 registro para poder presionar Descargar PDF, pero ListarAuditoria responde HTTP 500 - "
+                f"nunca se llega a habilitar Descargar PDF. Mensaje real: {resultado!r}"
+            )
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True
@@ -720,7 +756,7 @@ def main():
             video_portal = page.video
             video_app = app.video if app else None
             browser.close()
-            if _CASO_OK:
+            if _CASO_OK or _ES_DEFECTO_CONFIRMADO:
                 ruta_portal = _renombrar_video(video_portal, EVIDENCIA / f"{CASO}-1.webm") if video_portal is not None else None
                 ruta_app = _renombrar_video(video_app, EVIDENCIA / f"{CASO}-2.webm") if video_app is not None else None
                 rutas_videos = [r for r in (ruta_portal, ruta_app) if r is not None]

@@ -54,7 +54,7 @@ except ValueError:
 
 URL = "https://pldsweb.luzdelsur.com.pe/Plataforma/PlataformaWeb"
 USUARIO = "SCASTI_DW"
-PASSWORD = "Soporte2025$5"
+PASSWORD = "Melquisedec_01"
 
 CASO = "CP038"
 EVIDENCIA = Path(__file__).resolve().parent / CASO
@@ -239,6 +239,25 @@ def esperar_fin_de_carga(app, pantalla, timeout_ms=45000):
         app.wait_for_load_state("networkidle", timeout=10000)
     except PWTimeoutError:
         pass
+    # Espera adicional: algunas grillas (confirmado en vivo 08/10/2026,
+    # PR000326-SP2 Asignacion/Reasignacion de Reclamos con cientos de
+    # registros) usan un mat-spinner/mat-progress-spinner que ni el boton
+    # 'Cargando...' ni networkidle detectan -el request ya respondio pero
+    # el render de la grilla en pantalla sigue en curso varios segundos
+    # mas, a veces 30s+-. Sin esto la captura/lectura caia a mitad de
+    # render (grilla vacia pese a que la API ya habia devuelto datos
+    # reales). Se espera activamente (hasta timeout_ms) a que el spinner
+    # desaparezca; si la pantalla no usa este tipo de spinner (el caso mas
+    # comun) is_visible() da False de entrada y esto no agrega demora.
+    plazo = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < plazo:
+        try:
+            spinner_visible = pantalla.locator("mat-spinner, mat-progress-spinner, .mat-spinner, .mat-progress-spinner, .app-loading-overlay, .app-loading-spinner, [role='progressbar']").first.is_visible()
+        except Exception:
+            spinner_visible = False
+        if not spinner_visible:
+            break
+        app.wait_for_timeout(300)
     app.wait_for_timeout(500)
 
 
@@ -707,18 +726,32 @@ def main():
             login(page, paso_excel=1)
             app, frame = abrir_asignacion(page, paso_excel=2)
 
+            # CONFIRMADO EN VIVO 08/10/2026: la estacion por defecto ("Coordinación
+            # Reclamos") muestra reclamos LEGACY formato "RCL-NNNNNNN" (ej.
+            # RCL-0082942), no el formato "RE...-TIPO-AAAA" que se asumio al
+            # escribir este caso (valido en ese momento con otra estacion/dataset).
+            # El patron se amplia para cubrir ambos formatos reales vistos, y se
+            # recorre TODA la grilla (no solo la 1ra fila) por si la fila 0
+            # justo no matchea pero otra si.
+            patron_codigo = re.compile(r"\b(?:RCL-\d+|RE[A-Z]?\d+-[A-Z]+-\d{4})\b")
             frame.get_by_role("button", name="Buscar", exact=True).click()
             esperar_fin_de_carga(app, frame)
-            match_codigo = None
+            fila_objetivo = None
+            codigo_esperado = None
             for _ in range(20):
-                match_codigo = re.search(r"\bRE\S*-\d{4}\b", frame.locator("table tbody tr").first.inner_text())
-                if match_codigo:
+                filas_candidatas = frame.locator("table tbody tr")
+                for i in range(filas_candidatas.count()):
+                    m = patron_codigo.search(filas_candidatas.nth(i).inner_text())
+                    if m:
+                        fila_objetivo = filas_candidatas.nth(i)
+                        codigo_esperado = m.group()
+                        break
+                if fila_objetivo:
                     break
                 app.wait_for_timeout(1000)
-            assert match_codigo, "Se esperaba al menos 1 reclamo real con codigo en la grilla"
-            codigo_esperado = match_codigo.group()
+            assert fila_objetivo, "Se esperaba al menos 1 reclamo real con codigo en la grilla"
             capturar_paso(app, "antes_de_doble_clic", paso_excel=3)
-            frame.locator("table tbody tr").first.dblclick()
+            fila_objetivo.dblclick()
             app.wait_for_timeout(1500)
             esperar_fin_de_carga(app, frame)
             capturar_paso(app, "consulta_abierta", paso_excel=4)

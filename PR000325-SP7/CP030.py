@@ -10,7 +10,7 @@ Resultado esperado: La pantalla se adapta correctamente a cada resolución, con 
 Pasos a seguir:
 1. Ingresar a la plataforma web LDS. 2. Ingresar a la aplicacion CONSULTA DE CORRECCION DE MAXIMETROS. 3. Buscar un cliente con maximetro, seleccionar un medidor y presionar Seleccionar (panel de detalle cargado). 4. Verificar la visualizacion en resolucion desktop (1920x1080) con los datos ya cargados. 5. Redimensionar a resolucion tablet (768x1024) sin perder los datos cargados. 6. Redimensionar a resolucion mobile (375x667) sin perder los datos cargados. 7. Verificar que los elementos no se desbordan y la pantalla es usable en cada resolucion, con la grilla y el panel de detalle visibles.
 """
-import os, re, shutil, struct, subprocess, time, zipfile
+import json, os, re, shutil, struct, subprocess, time, zipfile
 from datetime import date, timedelta
 from pathlib import Path
 from xml.sax.saxutils import escape as _escape_xml
@@ -66,6 +66,18 @@ EVIDENCIA = Path(__file__).resolve().parent / CASO
 if EVIDENCIA.exists():
     shutil.rmtree(EVIDENCIA, ignore_errors=True)
 EVIDENCIA.mkdir(parents=True, exist_ok=True)
+
+# Un caso listado en casos_fallidos_confirmados.json es un DEFECTO REAL ya
+# verificado (no un bug de automatizacion) - el FALLO en si es la prueba
+# del defecto, asi que igual merece video/Word completos (patron ya usado
+# en PR000349-SP4 CP018, ver memoria del framework).
+_CASOS_FALLIDOS_CONFIRMADOS_PATH = Path(__file__).resolve().parent / "casos_fallidos_confirmados.json"
+_ES_DEFECTO_CONFIRMADO = False
+if _CASOS_FALLIDOS_CONFIRMADOS_PATH.exists():
+    try:
+        _ES_DEFECTO_CONFIRMADO = CASO in json.loads(_CASOS_FALLIDOS_CONFIRMADOS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
 
 NOMBRE_CASO = 'Validar comportamiento responsive de la pantalla'
 RF_CASO = 'RF-04'
@@ -705,7 +717,49 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP030 (RF-04 - Validar comportamiento responsive de la pantalla): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf04(page, paso_excel=1)
+            frame.locator('input[aria-label="N.° de Cliente"]').fill("02390020")
+            frame.locator('input[aria-label="DV"]').first.fill("3")
+            app.wait_for_timeout(500)
+            frame.get_by_role("button", name=re.compile(r"^\s*Buscar\s*$")).click()
+            buscando = frame.get_by_text("Buscando...")
+            try:
+                buscando.first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pass
+            try:
+                buscando.first.wait_for(state="hidden", timeout=15000)
+            except Exception:
+                pass
+            app.wait_for_timeout(500)
+            frame.locator("table tbody tr").first.click()
+            app.wait_for_timeout(500)
+            frame.get_by_role("button", name=re.compile(r"^\s*Seleccionar\s*$")).click()
+            cargando = frame.get_by_text("Cargando...")
+            try:
+                cargando.first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pass
+            try:
+                cargando.first.wait_for(state="hidden", timeout=15000)
+            except Exception:
+                pass
+            app.wait_for_timeout(800)
+            capturar_paso(app, "desktop_1920x1080_con_datos", paso_excel=4)
+
+            app.set_viewport_size({"width": 768, "height": 1024})
+            app.wait_for_timeout(1000)
+            scroll_x = app.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
+            assert scroll_x <= 5, f"La pantalla desborda horizontalmente en tablet (768x1024): {scroll_x}px de scroll"
+            assert frame.get_by_text("Datos del Medidor").is_visible(), "El panel de detalle deberia seguir visible en tablet"
+            capturar_paso(app, "tablet_768x1024_con_datos", paso_excel=5)
+
+            app.set_viewport_size({"width": 375, "height": 667})
+            app.wait_for_timeout(1000)
+            scroll_x_mobile = app.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
+            assert scroll_x_mobile <= 5, f"La pantalla desborda horizontalmente en mobile (375x667): {scroll_x_mobile}px de scroll"
+            assert frame.get_by_text("Datos del Medidor").is_visible(), "El panel de detalle deberia seguir visible en mobile"
+            capturar_paso(app, "mobile_375x667_con_datos", paso_excel=6)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True
@@ -720,7 +774,7 @@ def main():
             video_portal = page.video
             video_app = app.video if app else None
             browser.close()
-            if _CASO_OK:
+            if _CASO_OK or _ES_DEFECTO_CONFIRMADO:
                 ruta_portal = _renombrar_video(video_portal, EVIDENCIA / f"{CASO}-1.webm") if video_portal is not None else None
                 ruta_app = _renombrar_video(video_app, EVIDENCIA / f"{CASO}-2.webm") if video_app is not None else None
                 rutas_videos = [r for r in (ruta_portal, ruta_app) if r is not None]

@@ -10,7 +10,7 @@ Resultado esperado: Todos los campos de la lectura seleccionada se muestran como
 Pasos a seguir:
 1. Ingresar a la plataforma web LDS. 2. Ingresar a la aplicación CONSULTA DE LECTURAS DE MAXÍMETRO. 3. Buscar y seleccionar una lectura. 4. Presionar Seleccionar. 5. Verificar que todos los campos se muestran en modo solo lectura. 6. Verificar que el botón Modificar no está presente en la pantalla.
 """
-import os, re, shutil, struct, subprocess, time, zipfile
+import json, os, re, shutil, struct, subprocess, time, zipfile
 from datetime import date, timedelta
 from pathlib import Path
 from xml.sax.saxutils import escape as _escape_xml
@@ -66,6 +66,18 @@ EVIDENCIA = Path(__file__).resolve().parent / CASO
 if EVIDENCIA.exists():
     shutil.rmtree(EVIDENCIA, ignore_errors=True)
 EVIDENCIA.mkdir(parents=True, exist_ok=True)
+
+# Un caso listado en casos_fallidos_confirmados.json es un DEFECTO REAL ya
+# verificado (no un bug de automatizacion) - el FALLO en si es la prueba
+# del defecto, asi que igual merece video/Word completos (patron ya usado
+# en PR000349-SP4 CP018, ver memoria del framework).
+_CASOS_FALLIDOS_CONFIRMADOS_PATH = Path(__file__).resolve().parent / "casos_fallidos_confirmados.json"
+_ES_DEFECTO_CONFIRMADO = False
+if _CASOS_FALLIDOS_CONFIRMADOS_PATH.exists():
+    try:
+        _ES_DEFECTO_CONFIRMADO = CASO in json.loads(_CASOS_FALLIDOS_CONFIRMADOS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
 
 NOMBRE_CASO = 'Visualización en modo solo lectura sin botón Modificar'
 RF_CASO = 'RF-04'
@@ -705,7 +717,43 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP027 (RF-04 - Visualización en modo solo lectura sin botón Modificar): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf04(page, paso_excel=1)
+            frame.locator('input[aria-label="N.° de Cliente"]').fill("02390020")
+            frame.locator('input[aria-label="DV"]').first.fill("3")
+            app.wait_for_timeout(500)
+            frame.get_by_role("button", name=re.compile(r"^\s*Buscar\s*$")).click()
+            buscando = frame.get_by_text("Buscando...")
+            try:
+                buscando.first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pass
+            try:
+                buscando.first.wait_for(state="hidden", timeout=15000)
+            except Exception:
+                pass
+            app.wait_for_timeout(500)
+            capturar_paso(app, "grilla_cargada", paso_excel=3)
+
+            frame.locator("table tbody tr").first.click()
+            app.wait_for_timeout(500)
+            frame.get_by_role("button", name=re.compile(r"^\s*Seleccionar\s*$")).click()
+            cargando = frame.get_by_text("Cargando...")
+            try:
+                cargando.first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pass
+            try:
+                cargando.first.wait_for(state="hidden", timeout=15000)
+            except Exception:
+                pass
+            app.wait_for_timeout(800)
+            capturar_paso(app, "detalle_solo_lectura_cargado", paso_excel=5)
+
+            boton_modificar = frame.get_by_role("button", name=re.compile(r"^\s*Modificar\s*$"))
+            assert boton_modificar.count() == 0, "El boton Modificar NO deberia existir en esta pantalla de solo consulta"
+            datos_medidor = frame.locator("text=Datos del Medidor")
+            assert datos_medidor.is_visible(), "Se esperaba el panel 'Datos del Medidor' con la lectura seleccionada"
+            capturar_paso(app, "modificar_no_presente", paso_excel=6)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True
@@ -720,7 +768,7 @@ def main():
             video_portal = page.video
             video_app = app.video if app else None
             browser.close()
-            if _CASO_OK:
+            if _CASO_OK or _ES_DEFECTO_CONFIRMADO:
                 ruta_portal = _renombrar_video(video_portal, EVIDENCIA / f"{CASO}-1.webm") if video_portal is not None else None
                 ruta_app = _renombrar_video(video_app, EVIDENCIA / f"{CASO}-2.webm") if video_app is not None else None
                 rutas_videos = [r for r in (ruta_portal, ruta_app) if r is not None]

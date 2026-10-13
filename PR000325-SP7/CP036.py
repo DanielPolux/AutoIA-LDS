@@ -10,7 +10,7 @@ Resultado esperado: El registro recién guardado queda marcado como vigente (ult
 Pasos a seguir:
 1. Ingresar a la plataforma web LDS. 2. Ingresar a la aplicación CORRECCIÓN DE LECTURAS DE FACTURACIÓN. 3. Cargar un suministro con correcciones previas. 4. Ingresar un nuevo valor de Lectura de Retiro (distinto al vigente) y presionar Actualizar. 5. Verificar que aparece el modal con el texto "Lectura corregida correctamente. Los registros anteriores han sido marcados como históricos." (capturar el modal ANTES de cerrarlo). 6. Presionar Aceptar y verificar que, tras la recarga automática, el campo Lectura de Retiro muestra el valor recién ingresado en el paso 4 (confirma que quedó como el registro vigente).
 """
-import os, re, shutil, struct, subprocess, time, zipfile
+import json, os, re, shutil, struct, subprocess, time, zipfile
 from datetime import date, timedelta
 from pathlib import Path
 from xml.sax.saxutils import escape as _escape_xml
@@ -66,6 +66,18 @@ EVIDENCIA = Path(__file__).resolve().parent / CASO
 if EVIDENCIA.exists():
     shutil.rmtree(EVIDENCIA, ignore_errors=True)
 EVIDENCIA.mkdir(parents=True, exist_ok=True)
+
+# Un caso listado en casos_fallidos_confirmados.json es un DEFECTO REAL ya
+# verificado (no un bug de automatizacion) - el FALLO en si es la prueba
+# del defecto, asi que igual merece video/Word completos (patron ya usado
+# en PR000349-SP4 CP018, ver memoria del framework).
+_CASOS_FALLIDOS_CONFIRMADOS_PATH = Path(__file__).resolve().parent / "casos_fallidos_confirmados.json"
+_ES_DEFECTO_CONFIRMADO = False
+if _CASOS_FALLIDOS_CONFIRMADOS_PATH.exists():
+    try:
+        _ES_DEFECTO_CONFIRMADO = CASO in json.loads(_CASOS_FALLIDOS_CONFIRMADOS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
 
 NOMBRE_CASO = 'Registro vigente y registros históricos al guardar'
 RF_CASO = 'RF-05'
@@ -705,7 +717,39 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP036 (RF-05 - Registro vigente y registros históricos al guardar): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf05(page, paso_excel=1)
+            frame.locator("input").first.fill("15254")
+            app.wait_for_timeout(500)
+            frame.get_by_role("button", name=re.compile(r"^\s*Leer\s*$")).click()
+            app.wait_for_timeout(2500)
+            capturar_paso(app, "suministro_con_correccion_previa_cargado", paso_excel=3)
+
+            campo_lectura_retiro = frame.locator('input[aria-label="Lectura de Retiro Activa"]')
+            valor_anterior = campo_lectura_retiro.input_value()
+            numero_anterior = float(valor_anterior.replace(".", "").replace(",", "."))
+            nuevo_valor = f"{numero_anterior + 50:.2f}".replace(".", ",")
+            campo_lectura_retiro.fill(nuevo_valor)
+            campo_lectura_retiro.press("Tab")
+            app.wait_for_timeout(800)
+            capturar_paso(app, "nuevo_valor_lectura_retiro_ingresado", paso_excel=4)
+
+            frame.get_by_role("button", name=re.compile(r"^\s*Actualizar\s*$")).click()
+            modal = frame.locator(".ant-modal")
+            modal.first.wait_for(state="visible", timeout=10000)
+            resultado = modal.first.inner_text()
+            capturar_paso(app, "mensaje_lectura_corregida_registros_historicos", paso_excel=5)
+            assert resultado and "corregida correctamente" in resultado.lower() and "marcados como" in resultado.lower(), (
+                f"No se vio el mensaje esperado de correccion guardada con historicos: {resultado!r}"
+            )
+            modal.first.get_by_role("button", name=re.compile(r"^\s*Aceptar\s*$")).click()
+            app.wait_for_timeout(2500)
+
+            campo_lectura_retiro_recargado = frame.locator('input[aria-label="Lectura de Retiro Activa"]')
+            valor_recargado = campo_lectura_retiro_recargado.input_value()
+            assert valor_recargado.strip() == nuevo_valor, (
+                f"Tras la recarga automatica, se esperaba que Lectura de Retiro quede en el valor recien ingresado ({nuevo_valor}) como registro vigente: {valor_recargado!r} (anterior: {valor_anterior!r})"
+            )
+            capturar_paso(app, "registro_vigente_confirmado_tras_recarga", paso_excel=6)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True
@@ -720,7 +764,7 @@ def main():
             video_portal = page.video
             video_app = app.video if app else None
             browser.close()
-            if _CASO_OK:
+            if _CASO_OK or _ES_DEFECTO_CONFIRMADO:
                 ruta_portal = _renombrar_video(video_portal, EVIDENCIA / f"{CASO}-1.webm") if video_portal is not None else None
                 ruta_app = _renombrar_video(video_app, EVIDENCIA / f"{CASO}-2.webm") if video_app is not None else None
                 rutas_videos = [r for r in (ruta_portal, ruta_app) if r is not None]

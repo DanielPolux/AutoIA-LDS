@@ -12,7 +12,7 @@ Resultado esperado: El sistema actualiza el registro existente y confirma la ope
 Pasos a seguir:
 1. Ingresar a la plataforma web LDS. 2. Ingresar a la aplicación CORRECCIÓN DE DEMANDAS LEÍDAS HISTÓRICAS. 3. Localizar un suministro con registro previo para la fecha. 4. Ingresar nuevos valores de Demanda FP y HP. 5. Presionar Modificar. 6. Verificar que el sistema confirma la actualización. 7. Verificar que no se generó un registro duplicado.
 """
-import os, re, shutil, struct, subprocess, time, zipfile
+import json, os, re, shutil, struct, subprocess, time, zipfile
 from datetime import date, timedelta
 from pathlib import Path
 from xml.sax.saxutils import escape as _escape_xml
@@ -68,6 +68,18 @@ EVIDENCIA = Path(__file__).resolve().parent / CASO
 if EVIDENCIA.exists():
     shutil.rmtree(EVIDENCIA, ignore_errors=True)
 EVIDENCIA.mkdir(parents=True, exist_ok=True)
+
+# Un caso listado en casos_fallidos_confirmados.json es un DEFECTO REAL ya
+# verificado (no un bug de automatizacion) - el FALLO en si es la prueba
+# del defecto, asi que igual merece video/Word completos (patron ya usado
+# en PR000349-SP4 CP018, ver memoria del framework).
+_CASOS_FALLIDOS_CONFIRMADOS_PATH = Path(__file__).resolve().parent / "casos_fallidos_confirmados.json"
+_ES_DEFECTO_CONFIRMADO = False
+if _CASOS_FALLIDOS_CONFIRMADOS_PATH.exists():
+    try:
+        _ES_DEFECTO_CONFIRMADO = CASO in json.loads(_CASOS_FALLIDOS_CONFIRMADOS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
 
 NOMBRE_CASO = 'Actualización de registro de demanda histórica existente'
 RF_CASO = 'RF-02'
@@ -707,7 +719,71 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP013 (RF-02 - Actualización de registro de demanda histórica existente): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf02(page, paso_excel=1)
+            radios = frame.locator('input[type="radio"]')
+            radios.nth(1).click(force=True)
+            app.wait_for_timeout(400)
+            frame.locator('input[aria-label^="Número de Cliente"]').fill("00014699")
+            frame.locator('input[aria-label="Dígito verificador"]').fill("4")
+            app.wait_for_timeout(300)
+            frame.get_by_role("button", name=re.compile(r"^\s*Leer\s*$")).click()
+            app.wait_for_timeout(1500)
+
+            campo_fecha = frame.locator('input[aria-label="Fecha de lectura"]')
+            campo_fp = frame.locator('input[aria-label^="Demanda Leída Fuera de Punta"]')
+            campo_hp = frame.locator('input[aria-label^="Demanda Leída Hora de Punta"]')
+            boton_modificar = frame.get_by_role("button", name=re.compile(r"^\s*Modificar\s*$"))
+
+            campo_fecha.fill("2026-06-30")
+            campo_fecha.press("Tab")
+            app.wait_for_timeout(800)
+            frame.get_by_role("button", name=re.compile(r"^\s*Historia\.\.\.\s*$")).click()
+            app.wait_for_timeout(1500)
+            capturar_paso(app, "fecha_con_registro_existente_precargado", paso_excel=3)
+
+            valor_fp_original = campo_fp.input_value()
+            assert valor_fp_original not in ("", "0.00", "0,00"), (
+                f"Se esperaba un valor de Demanda FP ya registrado para esta fecha: {valor_fp_original!r}"
+            )
+
+            campo_fp.fill("")
+            campo_fp.press_sequentially("395.50", delay=60)
+            campo_hp.fill("")
+            campo_hp.press_sequentially("380.25", delay=60)
+            app.wait_for_timeout(300)
+            capturar_paso(app, "nuevos_valores_ingresados", paso_excel=4)
+
+            boton_modificar.click()
+            modal_confirma = frame.locator("nz-modal-container").last
+            modal_confirma.wait_for(state="visible", timeout=6000)
+            modal_confirma.get_by_role("button", name=re.compile(r"^\s*Aceptar\s*$")).click()
+            app.wait_for_timeout(1500)
+            modal_final = frame.locator("nz-modal-container").last
+            resultado = modal_final.inner_text()
+            capturar_paso(app, "registro_actualizado_confirmado", paso_excel=6)
+            assert "registro actualizado" in resultado.lower(), f"No se vio el mensaje esperado de actualizacion: {resultado!r}"
+
+            # Al aceptar, la pantalla vuelve a su estado inicial (equivale a
+            # "Cancelar", segun el manual) - para verificar que NO se duplico el
+            # registro hay que volver a buscar el mismo suministro desde cero y
+            # revisar la historia otra vez.
+            modal_final.get_by_role("button", name=re.compile(r"^\s*Aceptar\s*$")).click()
+            app.wait_for_timeout(1000)
+
+            radios.nth(1).click(force=True)
+            app.wait_for_timeout(400)
+            frame.locator('input[aria-label^="Número de Cliente"]').fill("00014699")
+            frame.locator('input[aria-label="Dígito verificador"]').fill("4")
+            app.wait_for_timeout(300)
+            frame.get_by_role("button", name=re.compile(r"^\s*Leer\s*$")).click()
+            app.wait_for_timeout(1500)
+            frame.get_by_role("button", name=re.compile(r"^\s*Historia\.\.\.\s*$")).click()
+            app.wait_for_timeout(1500)
+
+            filas_fecha = frame.locator("table tbody tr", has_text="30/06/2026")
+            assert filas_fecha.count() == 1, f"Se esperaba una unica fila para 30/06/2026 tras actualizar (sin duplicar): {filas_fecha.count()}"
+            assert "395.50" in filas_fecha.first.inner_text(), f"Se esperaba el nuevo valor (395.50) persistido en la fila: {filas_fecha.first.inner_text()!r}"
+            capturar_paso(app, "sin_registro_duplicado_valor_persistido", paso_excel=7)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True
@@ -722,7 +798,7 @@ def main():
             video_portal = page.video
             video_app = app.video if app else None
             browser.close()
-            if _CASO_OK:
+            if _CASO_OK or _ES_DEFECTO_CONFIRMADO:
                 ruta_portal = _renombrar_video(video_portal, EVIDENCIA / f"{CASO}-1.webm") if video_portal is not None else None
                 ruta_app = _renombrar_video(video_app, EVIDENCIA / f"{CASO}-2.webm") if video_app is not None else None
                 rutas_videos = [r for r in (ruta_portal, ruta_app) if r is not None]

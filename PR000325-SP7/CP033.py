@@ -10,7 +10,7 @@ Resultado esperado: El sistema muestra el mensaje correspondiente y no habilita 
 Pasos a seguir:
 1. Ingresar a la plataforma web LDS. 2. Ingresar a la aplicación CORRECCIÓN DE LECTURAS DE FACTURACIÓN. 3. Ingresar el número de un suministro sin cambio de medidor y sin estado NUEVO. 4. Presionar Leer. 5. Verificar que el sistema muestra el mensaje correspondiente. 6. Verificar que las secciones de corrección no se habilitan.
 """
-import os, re, shutil, struct, subprocess, time, zipfile
+import json, os, re, shutil, struct, subprocess, time, zipfile
 from datetime import date, timedelta
 from pathlib import Path
 from xml.sax.saxutils import escape as _escape_xml
@@ -66,6 +66,18 @@ EVIDENCIA = Path(__file__).resolve().parent / CASO
 if EVIDENCIA.exists():
     shutil.rmtree(EVIDENCIA, ignore_errors=True)
 EVIDENCIA.mkdir(parents=True, exist_ok=True)
+
+# Un caso listado en casos_fallidos_confirmados.json es un DEFECTO REAL ya
+# verificado (no un bug de automatizacion) - el FALLO en si es la prueba
+# del defecto, asi que igual merece video/Word completos (patron ya usado
+# en PR000349-SP4 CP018, ver memoria del framework).
+_CASOS_FALLIDOS_CONFIRMADOS_PATH = Path(__file__).resolve().parent / "casos_fallidos_confirmados.json"
+_ES_DEFECTO_CONFIRMADO = False
+if _CASOS_FALLIDOS_CONFIRMADOS_PATH.exists():
+    try:
+        _ES_DEFECTO_CONFIRMADO = CASO in json.loads(_CASOS_FALLIDOS_CONFIRMADOS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
 
 NOMBRE_CASO = 'Bloqueo por ausencia de cambio de medidor y estado no NUEVO'
 RF_CASO = 'RF-05'
@@ -705,7 +717,25 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP033 (RF-05 - Bloqueo por ausencia de cambio de medidor y estado no NUEVO): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf05(page, paso_excel=1)
+            frame.locator("input").first.fill("3")
+            app.wait_for_timeout(500)
+            capturar_paso(app, "suministro_sin_cambio_medidor_ingresado", paso_excel=3)
+
+            frame.get_by_role("button", name=re.compile(r"^\s*Leer\s*$")).click()
+            modal = frame.locator(".ant-modal")
+            modal.first.wait_for(state="visible", timeout=8000)
+            resultado = modal.first.inner_text()
+            capturar_paso(app, "mensaje_sin_cambio_medidor", paso_excel=5)
+            assert resultado and "no ha tenido cambio" in resultado.lower(), (
+                f"No se vio el mensaje esperado de ausencia de cambio de medidor: {resultado!r}"
+            )
+            modal.first.get_by_role("button", name=re.compile(r"^\s*Aceptar\s*$")).click()
+            app.wait_for_timeout(500)
+
+            boton_actualizar = frame.get_by_role("button", name=re.compile(r"^\s*Actualizar\s*$"))
+            assert not boton_actualizar.is_enabled(), "El boton Actualizar no deberia habilitarse: las secciones de correccion no deben habilitarse sin un evento de cambio de medidor"
+            capturar_paso(app, "secciones_no_habilitadas", paso_excel=6)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True
@@ -720,7 +750,7 @@ def main():
             video_portal = page.video
             video_app = app.video if app else None
             browser.close()
-            if _CASO_OK:
+            if _CASO_OK or _ES_DEFECTO_CONFIRMADO:
                 ruta_portal = _renombrar_video(video_portal, EVIDENCIA / f"{CASO}-1.webm") if video_portal is not None else None
                 ruta_app = _renombrar_video(video_app, EVIDENCIA / f"{CASO}-2.webm") if video_app is not None else None
                 rutas_videos = [r for r in (ruta_portal, ruta_app) if r is not None]

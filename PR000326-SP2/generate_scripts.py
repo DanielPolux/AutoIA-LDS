@@ -84,7 +84,7 @@ from playwright.sync_api import sync_playwright, expect, TimeoutError as PWTimeo
 
 URL = "https://pldsweb.luzdelsur.com.pe/Plataforma/PlataformaWeb"
 USUARIO = "SCASTI_DW"
-PASSWORD = "Soporte2025$5"
+PASSWORD = "Melquisedec_01"
 
 CASO = "{cp}"
 EVIDENCIA = Path(__file__).resolve().parent / CASO
@@ -526,9 +526,15 @@ frame.get_by_role("button", name="Buscar", exact=True).click()
 esperar_fin_de_carga(app, frame)
 capturar_paso(app, "resultado_combinado", paso_excel=4)
 filas = frame.locator("table tbody tr")
+mensaje_vacio_texto = "No se encontraron reclamos con los filtros indicados."
 for i in range(filas.count()):
     texto_fila = filas.nth(i).inner_text()
-    if texto_fila.strip():
+    # CONFIRMADO EN VIVO 08/10/2026: con 0 resultados reales la grilla
+    # renderiza 1 sola <tr> placeholder con este mensaje exacto (no una
+    # fila vacia) - hay que excluirla del chequeo o el assert de abajo
+    # falla siempre que el resultado real es 0, aunque sea el escenario
+    # valido que este caso espera.
+    if texto_fila.strip() and texto_fila.strip() != mensaje_vacio_texto:
         assert "APELACION" in texto_fila.upper(), f"Fila fuera de Apelacion con ambos filtros combinados: {texto_fila!r}"
 ''')
 
@@ -1016,7 +1022,17 @@ app.wait_for_timeout(1500)
 mensaje = frame.get_by_text("No se encontró el reclamo 'RE999999-WEB-2026'.", exact=True)
 mensaje.wait_for(state="visible", timeout=10000)
 capturar_paso(app, "codigo_no_encontrado", paso_excel=4)
-frame.locator("app-alert").get_by_role("button", name="Aceptar", exact=True).click()
+# CONFIRMADO EN VIVO 08/10/2026: el boton del dialogo de error ya no se
+# llama "Aceptar" - ahora dice "Cerrar" (cambio real de UI, el mensaje
+# de error en si no cambio). Ademas, el locator scoped a "app-alert"
+# nunca se vuelve visible (hay una instancia de ese tag en el DOM que
+# no es la que realmente se ve en pantalla, probable overlay/portal
+# fuera de ese contenedor) - se busca el boton directo en el frame. OJO:
+# get_by_role("button", name="Cerrar") da "strict mode violation" -
+# matchea TANTO el boton real de texto "Cerrar" COMO el icono "X" de
+# cerrar la esquina (que tiene aria-label="Cerrar" pero sin texto
+# visible) - se usa get_by_text para matchear solo el boton de texto.
+frame.get_by_text("Cerrar", exact=True).click()
 ''')
 
 # CONFIRMADO EN VIVO 24/09/2026 (_exploracion/explore_43_rf12_restantes.py,
@@ -1400,17 +1416,21 @@ assert boton_pdf.is_disabled(), "Exportar PDF deberia estar deshabilitado sin re
 #   confirmar) - cancelar no deja cambios, mismo patron que CP026/CP064.
 
 add("CP046", "app, frame = abrir_reasignacion(page, paso_excel=2)", '''
-# CONFIRMADO EN VIVO 24/09/2026 (_exploracion/explore_33_fecha_registro_cp046.py):
-# los 2 reclamos reales de ISE tienen F. Registro muy antigua (2001-04-14
-# y 2003-03-19, dias rest. -6608/-6106) - NO caen dentro del rango
-# 01/09-24/09/2026 del proyecto. El filtro de fechas SI filtra por fecha
-# de inicio real (no por fecha de busqueda), asi que el rango debe
-# incluir esos anios para seguir viendo los mismos reclamos.
+# CONFIRMADO EN VIVO 08/10/2026 (_exploracion/explore_157_cp046_filtro_fechas.py,
+# capturando la respuesta real de ListarReclamosParaReasignar): el filtro
+# de fechas SI funciona correctamente (filtra por F. Registro real) - la
+# estacion por defecto ("Coordinación Reclamos") trae reclamos reales con
+# fechas desde 2004 hasta hoy, y un rango 1990-2026 los cubre a TODOS por
+# igual (de ahi que antes pareciera "igual sin filtrar", quedo confirmado
+# que es el comportamiento correcto, no un bug). Patron de codigo
+# ampliado (RCL-/RE.../REC...) aplicado consistente en las 3 comparaciones,
+# mismo fix que CP038/CP068.
+patron_codigo = re.compile(r"\\b(?:RCL-\\d+|RE[A-Z]?\\d+-[A-Z]+-\\d{4})\\b")
 capturar_paso(app, "antes_de_buscar_sin_fechas", paso_excel=3)
 frame.get_by_role("button", name="Buscar", exact=True).click()
 esperar_fin_de_carga(app, frame)
 capturar_paso(app, "resultado_sin_fechas", paso_excel=3)
-codigos_sin_fechas = set(re.findall(r"RCL-\\d+", frame.locator("table tbody").inner_text()))
+codigos_sin_fechas = set(patron_codigo.findall(frame.locator("table tbody").inner_text()))
 assert len(codigos_sin_fechas) > 0, "Se esperaba al menos 1 reclamo real sin filtrar por fechas"
 campo_desde = frame.get_by_label(re.compile("^Desde$", re.I))
 campo_hasta = frame.get_by_label(re.compile("^Hasta$", re.I))
@@ -1420,7 +1440,7 @@ capturar_paso(app, "antes_de_buscar_rango_amplio", paso_excel=5)
 frame.get_by_role("button", name="Buscar", exact=True).click()
 esperar_fin_de_carga(app, frame)
 capturar_paso(app, "resultado_rango_amplio", paso_excel=6)
-codigos_rango_amplio = set(re.findall(r"RCL-\\d+", frame.locator("table tbody").inner_text()))
+codigos_rango_amplio = set(patron_codigo.findall(frame.locator("table tbody").inner_text()))
 assert codigos_rango_amplio == codigos_sin_fechas, f"Con un rango que cubre 1990-2026 deberian seguir los mismos reclamos: {codigos_rango_amplio} vs {codigos_sin_fechas}"
 campo_desde.fill("2020-01-01")
 campo_hasta.fill("2026-09-24")
@@ -1428,8 +1448,23 @@ capturar_paso(app, "antes_de_buscar_rango_reciente", paso_excel=5)
 frame.get_by_role("button", name="Buscar", exact=True).click()
 esperar_fin_de_carga(app, frame)
 capturar_paso(app, "resultado_rango_reciente_sin_datos", paso_excel=6)
-codigos_rango_reciente = set(re.findall(r"RCL-\\d+", frame.locator("table tbody").inner_text()))
-assert codigos_rango_reciente == set(), f"Un rango que excluye 2001/2003 no deberia traer estos reclamos antiguos: {codigos_rango_reciente}"
+# CONFIRMADO EN VIVO 08/10/2026: con la estacion por defecto, un rango
+# 2020-2026 NO da vacio (SI hay reclamos reales de 2021/2022) - el
+# assert original asumia "vacio" porque se escribio pensando solo en los
+# 2 reclamos viejos de ISE (2001/2003). Tampoco sirve comparar el SET
+# COMPLETO contra "sin fechas": la grilla pagina a 10 filas, asi que al
+# excluirse los viejos del lado del servidor, otros reclamos recientes
+# que antes estaban en la pagina 2 entran a la pagina 1 y rompen una
+# comparacion de conjuntos completos (confirmado en vivo con una corrida
+# real: mismo tamaño 10 en ambos casos, pero no exactamente el mismo
+# conjunto, por pura paginacion). Chequeo robusto: los 2 reclamos viejos
+# conocidos (RCL-0083049/2004, REC07137-ESC-2019) NO deben aparecer en
+# el rango reciente, sin importar paginacion del resto.
+codigos_rango_reciente = set(patron_codigo.findall(frame.locator("table tbody").inner_text()))
+assert len(codigos_rango_reciente) > 0, "Se esperaba al menos 1 reclamo real en el rango reciente (2020-2026)"
+codigos_viejos_conocidos = {"RCL-0083049", "REC07137-ESC-2019"}
+interseccion = codigos_rango_reciente & codigos_viejos_conocidos
+assert not interseccion, f"El rango reciente (2020-2026) no deberia incluir estos reclamos viejos: {interseccion}"
 ''')
 
 add("CP048", "app, frame = abrir_reasignacion(page, paso_excel=2)", '''
@@ -1441,7 +1476,9 @@ capturar_paso(app, "antes_de_buscar", paso_excel=3)
 frame.get_by_role("button", name="Buscar", exact=True).click()
 esperar_fin_de_carga(app, frame)
 capturar_paso(app, "resultado_ordenado", paso_excel=4)
-codigos = re.findall(r"RCL-\\d+", frame.locator("table tbody").inner_text())
+# CONFIRMADO EN VIVO 08/10/2026: patron ampliado, ver nota en CP038.
+patron_codigo = re.compile(r"\\b(?:RCL-\\d+|RE[A-Z]?\\d+-[A-Z]+-\\d{4})\\b")
+codigos = patron_codigo.findall(frame.locator("table tbody").inner_text())
 assert len(codigos) > 0, "Se esperaba al menos 1 reclamo real"
 assert codigos == sorted(codigos), f"La grilla deberia quedar ordenada ascendente por N Reclamo: {codigos}"
 ''')
@@ -1657,6 +1694,15 @@ assert "1" in boton_reasignar.inner_text(), f"El contador deberia mostrar 1, bot
 # casos de solo-lectura sobre RCL-0035331/RCL-0058715 en esta estacion.
 
 add("CP050", "app, frame = abrir_reasignacion(page, paso_excel=2)", '''
+# CONFIRMADO EN VIVO 08/10/2026: la estacion por defecto de esta
+# pantalla ya NO es "Jefe Sucursal" (cambio de la jefatura de SCAZ en
+# csc_rolxest, pendiente de restaurar - ver memoria del proyecto), asi
+# que hay que seleccionarla a mano para seguir viendo RCL-0035331.
+campo_estacion = frame.locator("mat-select").first
+campo_estacion.click()
+app.wait_for_timeout(500)
+frame.get_by_role("option", name=re.compile("Sucursal", re.I)).click()
+app.wait_for_timeout(500)
 frame.get_by_role("button", name="Buscar", exact=True).click()
 esperar_fin_de_carga(app, frame)
 fila_objetivo = frame.locator("table tbody tr", has_text="RCL-0035331")
@@ -1687,9 +1733,11 @@ capturar_paso(app, "grilla_actualizada", paso_excel=6)
 add("CP051", "app, frame = abrir_reasignacion(page, paso_excel=2)", '''
 frame.get_by_role("button", name="Buscar", exact=True).click()
 esperar_fin_de_carga(app, frame)
+# CONFIRMADO EN VIVO 08/10/2026: patron ampliado, ver nota en CP038.
+patron_codigo = re.compile(r"\\b(?:RCL-\\d+|RE[A-Z]?\\d+-[A-Z]+-\\d{4})\\b")
 codigos_antes = set()
 for _ in range(20):
-    codigos_antes = set(re.findall(r"\\bRCL-\\d+\\b", frame.locator("table tbody").first.inner_text()))
+    codigos_antes = set(patron_codigo.findall(frame.locator("table tbody").first.inner_text()))
     if codigos_antes:
         break
     app.wait_for_timeout(1000)
@@ -1705,7 +1753,7 @@ frame.get_by_role("button", name="Cancelar", exact=True).click()
 app.wait_for_timeout(1000)
 esperar_fin_de_carga(app, frame)
 capturar_paso(app, "modal_cancelado", paso_excel=5)
-codigos_despues = set(re.findall(r"\\bRCL-\\d+\\b", frame.locator("table tbody").first.inner_text()))
+codigos_despues = set(patron_codigo.findall(frame.locator("table tbody").first.inner_text()))
 assert codigos_despues == codigos_antes, f"Los mismos reclamos deberian seguir en la grilla tras cancelar (antes={{codigos_antes}}, despues={{codigos_despues}})"
 ''')
 
@@ -1866,18 +1914,32 @@ frame.get_by_role("button", name="Cancelar", exact=True).click()
 # ademas trae el contexto "Anterior/Siguiente" poblado (1 de 2).
 
 add("CP038", "app, frame = abrir_asignacion(page, paso_excel=2)", '''
+# CONFIRMADO EN VIVO 08/10/2026: la estacion por defecto ("Coordinación
+# Reclamos") muestra reclamos LEGACY formato "RCL-NNNNNNN" (ej.
+# RCL-0082942), no el formato "RE...-TIPO-AAAA" que se asumio al
+# escribir este caso (valido en ese momento con otra estacion/dataset).
+# El patron se amplia para cubrir ambos formatos reales vistos, y se
+# recorre TODA la grilla (no solo la 1ra fila) por si la fila 0
+# justo no matchea pero otra si.
+patron_codigo = re.compile(r"\\b(?:RCL-\\d+|RE[A-Z]?\\d+-[A-Z]+-\\d{4})\\b")
 frame.get_by_role("button", name="Buscar", exact=True).click()
 esperar_fin_de_carga(app, frame)
-match_codigo = None
+fila_objetivo = None
+codigo_esperado = None
 for _ in range(20):
-    match_codigo = re.search(r"\\bRE\\S*-\\d{4}\\b", frame.locator("table tbody tr").first.inner_text())
-    if match_codigo:
+    filas_candidatas = frame.locator("table tbody tr")
+    for i in range(filas_candidatas.count()):
+        m = patron_codigo.search(filas_candidatas.nth(i).inner_text())
+        if m:
+            fila_objetivo = filas_candidatas.nth(i)
+            codigo_esperado = m.group()
+            break
+    if fila_objetivo:
         break
     app.wait_for_timeout(1000)
-assert match_codigo, "Se esperaba al menos 1 reclamo real con codigo en la grilla"
-codigo_esperado = match_codigo.group()
+assert fila_objetivo, "Se esperaba al menos 1 reclamo real con codigo en la grilla"
 capturar_paso(app, "antes_de_doble_clic", paso_excel=3)
-frame.locator("table tbody tr").first.dblclick()
+fila_objetivo.dblclick()
 app.wait_for_timeout(1500)
 esperar_fin_de_carga(app, frame)
 capturar_paso(app, "consulta_abierta", paso_excel=4)
@@ -1886,18 +1948,29 @@ assert codigo_esperado in frame.locator("body").inner_text(), f"Se esperaba ver 
 ''')
 
 add("CP068", "app, frame = abrir_reasignacion(page, paso_excel=2)", '''
+# CONFIRMADO EN VIVO 08/10/2026: ver nota en CP038 - la estacion por
+# defecto trae una mezcla de formatos de codigo (RCL-NNNNNNN, y
+# tambien RE.../REC...-TIPO-AAAA), no solo "RCL-". Mismo fix: patron
+# ampliado + recorrer toda la grilla, no solo la 1ra fila.
+patron_codigo = re.compile(r"\\b(?:RCL-\\d+|RE[A-Z]?\\d+-[A-Z]+-\\d{4})\\b")
 frame.get_by_role("button", name="Buscar", exact=True).click()
 esperar_fin_de_carga(app, frame)
-match_codigo = None
+fila_objetivo = None
+codigo_esperado = None
 for _ in range(20):
-    match_codigo = re.search(r"\\bRCL-\\d+\\b", frame.locator("table tbody tr").first.inner_text())
-    if match_codigo:
+    filas_candidatas = frame.locator("table tbody tr")
+    for i in range(filas_candidatas.count()):
+        m = patron_codigo.search(filas_candidatas.nth(i).inner_text())
+        if m:
+            fila_objetivo = filas_candidatas.nth(i)
+            codigo_esperado = m.group()
+            break
+    if fila_objetivo:
         break
     app.wait_for_timeout(1000)
-assert match_codigo, "Se esperaba al menos 1 reclamo real con codigo en la grilla"
-codigo_esperado = match_codigo.group()
+assert fila_objetivo, "Se esperaba al menos 1 reclamo real con codigo en la grilla"
 capturar_paso(app, "antes_de_doble_clic", paso_excel=3)
-frame.locator("table tbody tr").first.dblclick()
+fila_objetivo.dblclick()
 app.wait_for_timeout(1500)
 esperar_fin_de_carga(app, frame)
 capturar_paso(app, "consulta_abierta", paso_excel=4)
@@ -2056,6 +2129,13 @@ frame.get_by_role("button", name="Cancelar", exact=True).click()
 # de escribir el caso).
 
 add("CP163", "app, frame = abrir_reasignacion(page, paso_excel=2)", '''
+# CONFIRMADO EN VIVO 08/10/2026: ver nota en CP050 - la estacion por
+# defecto ya no es "Jefe Sucursal", hay que seleccionarla a mano.
+campo_estacion = frame.locator("mat-select").first
+campo_estacion.click()
+app.wait_for_timeout(500)
+frame.get_by_role("option", name=re.compile("Sucursal", re.I)).click()
+app.wait_for_timeout(500)
 frame.get_by_role("button", name="Buscar", exact=True).click()
 esperar_fin_de_carga(app, frame)
 fila_objetivo = frame.locator("table tbody tr", has_text="RCL-0058715")
@@ -2081,6 +2161,13 @@ frame.locator("app-alert").get_by_role("button", name="Aceptar", exact=True).cli
 ''')
 
 add("CP164", "app, frame = abrir_reasignacion(page, paso_excel=2)", '''
+# CONFIRMADO EN VIVO 08/10/2026: ver nota en CP050 - la estacion por
+# defecto ya no es "Jefe Sucursal", hay que seleccionarla a mano.
+campo_estacion = frame.locator("mat-select").first
+campo_estacion.click()
+app.wait_for_timeout(500)
+frame.get_by_role("option", name=re.compile("Sucursal", re.I)).click()
+app.wait_for_timeout(500)
 frame.get_by_role("button", name="Buscar", exact=True).click()
 esperar_fin_de_carga(app, frame)
 fila_objetivo = frame.locator("table tbody tr", has_text="RCL-0035331")

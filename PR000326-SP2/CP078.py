@@ -54,7 +54,7 @@ except ValueError:
 
 URL = "https://pldsweb.luzdelsur.com.pe/Plataforma/PlataformaWeb"
 USUARIO = "SCASTI_DW"
-PASSWORD = "Soporte2025$5"
+PASSWORD = "Melquisedec_01"
 
 CASO = "CP078"
 EVIDENCIA = Path(__file__).resolve().parent / CASO
@@ -239,6 +239,25 @@ def esperar_fin_de_carga(app, pantalla, timeout_ms=45000):
         app.wait_for_load_state("networkidle", timeout=10000)
     except PWTimeoutError:
         pass
+    # Espera adicional: algunas grillas (confirmado en vivo 08/10/2026,
+    # PR000326-SP2 Asignacion/Reasignacion de Reclamos con cientos de
+    # registros) usan un mat-spinner/mat-progress-spinner que ni el boton
+    # 'Cargando...' ni networkidle detectan -el request ya respondio pero
+    # el render de la grilla en pantalla sigue en curso varios segundos
+    # mas, a veces 30s+-. Sin esto la captura/lectura caia a mitad de
+    # render (grilla vacia pese a que la API ya habia devuelto datos
+    # reales). Se espera activamente (hasta timeout_ms) a que el spinner
+    # desaparezca; si la pantalla no usa este tipo de spinner (el caso mas
+    # comun) is_visible() da False de entrada y esto no agrega demora.
+    plazo = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < plazo:
+        try:
+            spinner_visible = pantalla.locator("mat-spinner, mat-progress-spinner, .mat-spinner, .mat-progress-spinner, .app-loading-overlay, .app-loading-spinner, [role='progressbar']").first.is_visible()
+        except Exception:
+            spinner_visible = False
+        if not spinner_visible:
+            break
+        app.wait_for_timeout(300)
     app.wait_for_timeout(500)
 
 

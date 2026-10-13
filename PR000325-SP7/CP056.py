@@ -10,7 +10,7 @@ Resultado esperado: El sistema muestra el mensaje "No ha habido modificaciones d
 Pasos a seguir:
 1. Ingresar a la plataforma web LDS. 2. Ingresar a la aplicación CORRECCIÓN DE LECTURAS DE FACTURACIÓN. 3. Cargar un suministro válido con evento de cambio de medidor. 4. Sin modificar ningún valor de Lectura de Retiro ni de Lectura de Terreno, presionar Actualizar. 5. Verificar que el sistema muestra el mensaje de advertencia. 6. Verificar (con un monitor de red) que no se realizó ninguna llamada al endpoint de actualización.
 """
-import os, re, shutil, struct, subprocess, time, zipfile
+import json, os, re, shutil, struct, subprocess, time, zipfile
 from datetime import date, timedelta
 from pathlib import Path
 from xml.sax.saxutils import escape as _escape_xml
@@ -66,6 +66,18 @@ EVIDENCIA = Path(__file__).resolve().parent / CASO
 if EVIDENCIA.exists():
     shutil.rmtree(EVIDENCIA, ignore_errors=True)
 EVIDENCIA.mkdir(parents=True, exist_ok=True)
+
+# Un caso listado en casos_fallidos_confirmados.json es un DEFECTO REAL ya
+# verificado (no un bug de automatizacion) - el FALLO en si es la prueba
+# del defecto, asi que igual merece video/Word completos (patron ya usado
+# en PR000349-SP4 CP018, ver memoria del framework).
+_CASOS_FALLIDOS_CONFIRMADOS_PATH = Path(__file__).resolve().parent / "casos_fallidos_confirmados.json"
+_ES_DEFECTO_CONFIRMADO = False
+if _CASOS_FALLIDOS_CONFIRMADOS_PATH.exists():
+    try:
+        _ES_DEFECTO_CONFIRMADO = CASO in json.loads(_CASOS_FALLIDOS_CONFIRMADOS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
 
 NOMBRE_CASO = 'Bloqueo al presionar "Actualizar" sin haber modificado ningún valor de lectura'
 RF_CASO = 'RF-05'
@@ -705,7 +717,28 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP056 (RF-05 - Bloqueo al presionar "Actualizar" sin haber modificado ningún valor de lectura): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf05(page, paso_excel=1)
+            peticiones_modificar = []
+            app.on("request", lambda r: peticiones_modificar.append(r.url) if "ModificarLecturaFacturacion" in r.url else None)
+
+            frame.locator("input").first.fill("15254")
+            app.wait_for_timeout(500)
+            frame.get_by_role("button", name=re.compile(r"^\s*Leer\s*$")).click()
+            app.wait_for_timeout(2500)
+            capturar_paso(app, "suministro_cargado_sin_modificar_nada", paso_excel=3)
+
+            frame.get_by_role("button", name=re.compile(r"^\s*Actualizar\s*$")).click()
+            modal = frame.locator(".ant-modal")
+            modal.first.wait_for(state="visible", timeout=8000)
+            resultado = modal.first.inner_text()
+            capturar_paso(app, "mensaje_sin_modificaciones", paso_excel=5)
+            assert resultado and "no ha habido modificaciones" in resultado.lower(), (
+                f"No se vio el mensaje esperado de sin modificaciones: {resultado!r}"
+            )
+            modal.first.get_by_role("button", name=re.compile(r"^\s*Aceptar\s*$")).click()
+            app.wait_for_timeout(500)
+
+            assert not peticiones_modificar, f"No deberia haberse llamado al endpoint de actualizacion, pero se llamo: {peticiones_modificar!r}"
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True
@@ -720,7 +753,7 @@ def main():
             video_portal = page.video
             video_app = app.video if app else None
             browser.close()
-            if _CASO_OK:
+            if _CASO_OK or _ES_DEFECTO_CONFIRMADO:
                 ruta_portal = _renombrar_video(video_portal, EVIDENCIA / f"{CASO}-1.webm") if video_portal is not None else None
                 ruta_app = _renombrar_video(video_app, EVIDENCIA / f"{CASO}-2.webm") if video_app is not None else None
                 rutas_videos = [r for r in (ruta_portal, ruta_app) if r is not None]

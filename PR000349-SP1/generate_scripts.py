@@ -172,7 +172,7 @@ from playwright.sync_api import sync_playwright, expect, TimeoutError as PWTimeo
 # Produccion la resuelve el backend segun la sesion/usuario, no la URL.
 URL = "https://pldsweb.luzdelsur.com.pe/Plataforma/PlataformaWeb"
 USUARIO = "SCASTI_DW"      # cuenta de prueba reutilizable, rol LUZGENACT ya asignado
-PASSWORD = "Soporte2025$5"
+PASSWORD = "Melquisedec_01"
 
 CASO = "{cp}"
 EVIDENCIA = Path(__file__).resolve().parent / CASO

@@ -12,7 +12,7 @@ Resultado esperado: El sistema rechaza la operación con el mensaje "No existe d
 Pasos a seguir:
 1. Ingresar a la plataforma web LDS. 2. Ingresar a la aplicación CORRECCIÓN DE DEMANDAS LEÍDAS HISTÓRICAS. 3. Localizar un suministro con consumo histórico para la fecha pero sin registro de demanda corregida. 4. Ingresar los valores de Demanda FP y HP. 5. Presionar Modificar. 6. Verificar que el sistema rechaza la operación con el mensaje de error y que no se creó ningún registro nuevo.
 """
-import os, re, shutil, struct, subprocess, time, zipfile
+import json, os, re, shutil, struct, subprocess, time, zipfile
 from datetime import date, timedelta
 from pathlib import Path
 from xml.sax.saxutils import escape as _escape_xml
@@ -68,6 +68,18 @@ EVIDENCIA = Path(__file__).resolve().parent / CASO
 if EVIDENCIA.exists():
     shutil.rmtree(EVIDENCIA, ignore_errors=True)
 EVIDENCIA.mkdir(parents=True, exist_ok=True)
+
+# Un caso listado en casos_fallidos_confirmados.json es un DEFECTO REAL ya
+# verificado (no un bug de automatizacion) - el FALLO en si es la prueba
+# del defecto, asi que igual merece video/Word completos (patron ya usado
+# en PR000349-SP4 CP018, ver memoria del framework).
+_CASOS_FALLIDOS_CONFIRMADOS_PATH = Path(__file__).resolve().parent / "casos_fallidos_confirmados.json"
+_ES_DEFECTO_CONFIRMADO = False
+if _CASOS_FALLIDOS_CONFIRMADOS_PATH.exists():
+    try:
+        _ES_DEFECTO_CONFIRMADO = CASO in json.loads(_CASOS_FALLIDOS_CONFIRMADOS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
 
 NOMBRE_CASO = 'Rechazo al Modificar cuando existe consumo histórico pero no demanda corregida (el sistema NUNCA crea)'
 RF_CASO = 'RF-02'
@@ -707,7 +719,43 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP014 (RF-02 - Rechazo al Modificar cuando existe consumo histórico pero no demanda corregida (el sistema NUNCA crea)): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf02(page, paso_excel=1)
+            radios = frame.locator('input[type="radio"]')
+            radios.nth(1).click(force=True)
+            app.wait_for_timeout(400)
+            frame.locator('input[aria-label^="Número de Cliente"]').fill("01495133")
+            frame.locator('input[aria-label="Dígito verificador"]').fill("4")
+            app.wait_for_timeout(300)
+            frame.get_by_role("button", name=re.compile(r"^\s*Leer\s*$")).click()
+            app.wait_for_timeout(1500)
+
+            campo_fecha = frame.locator('input[aria-label="Fecha de lectura"]')
+            campo_fp = frame.locator('input[aria-label^="Demanda Leída Fuera de Punta"]')
+            campo_hp = frame.locator('input[aria-label^="Demanda Leída Hora de Punta"]')
+            boton_modificar = frame.get_by_role("button", name=re.compile(r"^\s*Modificar\s*$"))
+
+            campo_fecha.fill("2026-05-25")
+            campo_fecha.press("Tab")
+            app.wait_for_timeout(800)
+            frame.get_by_role("button", name=re.compile(r"^\s*Historia\.\.\.\s*$")).click()
+            app.wait_for_timeout(1500)
+            capturar_paso(app, "fecha_con_consumo_sin_demanda_corregida", paso_excel=4)
+
+            campo_fp.press_sequentially("75.00", delay=60)
+            campo_hp.press_sequentially("25.00", delay=60)
+            app.wait_for_timeout(300)
+
+            boton_modificar.click()
+            modal_confirma = frame.locator("nz-modal-container").last
+            modal_confirma.wait_for(state="visible", timeout=6000)
+            modal_confirma.get_by_role("button", name=re.compile(r"^\s*Aceptar\s*$")).click()
+            app.wait_for_timeout(1500)
+            modal_final = frame.locator("nz-modal-container").last
+            resultado = modal_final.inner_text()
+            capturar_paso(app, "mensaje_rechazo_sistema_nunca_crea", paso_excel=6)
+            assert "no existe demanda hist" in resultado.lower() and "corrija" in resultado.lower(), (
+                f"No se vio el mensaje esperado de rechazo: {resultado!r}"
+            )
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True
@@ -722,7 +770,7 @@ def main():
             video_portal = page.video
             video_app = app.video if app else None
             browser.close()
-            if _CASO_OK:
+            if _CASO_OK or _ES_DEFECTO_CONFIRMADO:
                 ruta_portal = _renombrar_video(video_portal, EVIDENCIA / f"{CASO}-1.webm") if video_portal is not None else None
                 ruta_app = _renombrar_video(video_app, EVIDENCIA / f"{CASO}-2.webm") if video_app is not None else None
                 rutas_videos = [r for r in (ruta_portal, ruta_app) if r is not None]
