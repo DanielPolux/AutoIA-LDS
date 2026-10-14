@@ -1378,6 +1378,17 @@ assert "CLIENTE_ENCARGO_QA_CP024.txt" in texto_final, "El archivo NO debio desap
 ''')
 
 
+add("CP027", "app, frame = abrir_traslado(page, paso_excel=2)", '''
+boton_transferir = frame.get_by_role("button", name=re.compile(r"Transferir", re.I))
+assert boton_transferir.is_enabled(), "El boton Transferir debe permanecer habilitado incluso sin seleccion"
+capturar_paso(app, "sin_archivos_seleccionados", paso_excel=3)
+boton_transferir.click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_sin_seleccion", paso_excel=4, timeout_ms=5000)
+assert "no se seleccionaron archivos" in mensaje.lower(), f"Se esperaba el mensaje de sin seleccion: {mensaje!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
