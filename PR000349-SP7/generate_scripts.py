@@ -1323,6 +1323,61 @@ assert "1 archivo" in texto_pantalla, f"Se esperaba el contador en 1 archivo: {t
 ''')
 
 
+# CP025 ("Transferir un archivo seleccionado") BLOQUEADO 14/10/2026 -
+# ver nota completa debajo de CP024. Codigo ya escrito y probado UNA
+# vez (fallo con el error real de infraestructura, no por un bug del
+# script) - dejar comentado como plantilla lista para cuando
+# Infraestructura habilite el destino real, en vez de reescribirlo de
+# cero:
+# add("CP025", "app, frame = abrir_traslado(page, paso_excel=2)", '''
+# import tempfile
+# tmp_dir = Path(tempfile.mkdtemp(prefix="cp025_"))
+# archivo1 = tmp_dir / "CLIENTE_ENCARGO_QA_CP025.txt"
+# archivo1.write_text("Archivo de prueba QA - CP025", encoding="utf-8")
+# frame.locator("input[type=\\'file\\']").set_input_files([str(archivo1)])
+# app.wait_for_timeout(1200)
+# ir_al_tope(frame)
+# capturar_paso(app, "archivo_listo_para_transferir", paso_excel=3)
+# frame.get_by_role("button", name=re.compile(r"Transferir", re.I)).click()
+# app.wait_for_timeout(2500)
+# mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_transferido", paso_excel=4, timeout_ms=8000)
+# assert "transfir" in mensaje.lower(), f"Se esperaba confirmacion de transferencia: {mensaje!r}"
+# assert "1" in mensaje, f"Se esperaba que el mensaje mencione 1 archivo: {mensaje!r}"
+# ''')
+
+
+# BLOQUEADO 14/10/2026 (ver memoria del proyecto): el ambiente actual
+# devuelve "Error de Servicio" / HTTP 500 / FTP 553 "File name not
+# allowed" para CUALQUIER transferencia real (confirmado con un
+# archivo de prueba generico) - gap de infraestructura del destino
+# FTP, no de datos SQL (coincide con la propia precondicion de CP023:
+# "el directorio de destino... lo da de alta Infraestructura y no se
+# resuelve por SQL"). Por eso CP024 (que SI espera ese error) resulto
+# facil de reproducir con el ambiente tal cual esta, mientras que
+# CP025/CP026 (que esperan EXITO) quedan bloqueados hasta que
+# Infraestructura habilite el destino real.
+add("CP024", "app, frame = abrir_traslado(page, paso_excel=2)", '''
+import tempfile
+tmp_dir = Path(tempfile.mkdtemp(prefix="cp024_"))
+archivo1 = tmp_dir / "CLIENTE_ENCARGO_QA_CP024.txt"
+archivo1.write_text("Archivo de prueba QA - CP024", encoding="utf-8")
+frame.locator("input[type=\\'file\\']").set_input_files([str(archivo1)])
+app.wait_for_timeout(1200)
+ir_al_tope(frame)
+capturar_paso(app, "archivo_listo_para_transferir", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Transferir", re.I)).click()
+app.wait_for_timeout(2500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_error_transferencia", paso_excel=4, timeout_ms=8000)
+assert "error" in mensaje.lower(), f"Se esperaba que el sistema informe un error: {mensaje!r}"
+boton_cerrar_error = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S)).first.get_by_role("button", name=re.compile(r"^Cerrar$", re.I))
+if boton_cerrar_error.count():
+    boton_cerrar_error.first.click()
+    app.wait_for_timeout(500)
+texto_final = frame.locator("body").inner_text()
+assert "CLIENTE_ENCARGO_QA_CP024.txt" in texto_final, "El archivo NO debio desaparecer de la lista (la transferencia no se completo)"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
