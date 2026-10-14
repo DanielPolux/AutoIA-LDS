@@ -803,6 +803,44 @@ assert cuotas.strip() != "", f"Se esperaba un N. de Cuotas visible: {cuotas!r}"
 ''')
 
 
+# Cliente 1200017 CONFIRMADO en vivo 14/10/2026 sin relacion previa
+# (boton "Ingresar" en vez de "Modificar" tras Leer). Este mismo
+# cliente queda como fixture real Vigente para que CP015 lo revoque
+# despues - no se usa SQL en ningun momento. OJO: en esta pantalla
+# "Ingresar" ES el boton de submit (no un mero cambio de modo como en
+# RF-01) - los campos ya estan editables apenas carga un cliente
+# nuevo, sin necesitar un primer clic en Ingresar para "entrar en modo
+# edicion".
+add("CP011", "app, frame = abrir_cliente_encargo(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200017")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+app.wait_for_timeout(500)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="880390").first.click()
+app.wait_for_timeout(500)
+frame.locator("#numeroCuotas input").fill("12")
+frame.locator("#valorCuota input").fill("45.50")
+capturar_paso(app, "datos_completos", paso_excel=3)
+frame.locator("button", has_text="Ingresar").click()
+app.wait_for_timeout(1200)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_registro", paso_excel=4, timeout_ms=5000)
+assert "registrar" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de registro: {mensaje_confirmacion!r}"
+# Confirmado en vivo 14/10/2026: esta pantalla NO muestra un segundo
+# dialogo de "exito" tras confirmar (a diferencia de RF-01) - la unica
+# evidencia de que el registro funciono es que la grilla/Estado pasa
+# directo a "Vigente" y los botones cambian a Modificar/Revocar.
+app.wait_for_timeout(1500)
+capturar_paso(app, "relacion_registrada", paso_excel=5)
+estado = frame.locator("span.estado-tag").inner_text().strip()
+assert estado == "Vigente", f"La relacion deberia quedar Vigente: {estado!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
