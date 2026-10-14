@@ -422,6 +422,41 @@ def add(cp, abrir_call, body):
 # esperada antes de escribir cada bloque de RF.
 # ===========================================================================
 
+# ===========================================================================
+# RF-01: Auditoria de Afiliaciones (_exploracion/explore_0[3-4]*.py)
+# ===========================================================================
+# - Combo "Encargo de Cobranza" es un <select> NATIVO (id="selEncargo"),
+#   NO ant-design - manejar con select_option(value=...). 4 opciones
+#   reales: 0002=PLUZ PROTECCION, 0005=PLUZ SALUD, 0009=PLUZ EMERGENCIA,
+#   0013=PLUZ SEPELIO.
+# - Filtro superior sin name: inputs.nth(0)=N. de Cliente, nth(1)=Nombre
+#   (calculado), nth(2)=Documento (calculado).
+# - Grilla "Titulares" SI es ant-table (filas_tabla() funciona).
+# - Dato de prueba confirmado en vivo 13/10/2026 (ver
+#   Documentos/datos_prueba_RF01.sql, bloque 1.1): cliente 926226,
+#   encargo 0002 tiene 2 titulares reales: corr_afiliado=1 "LUIS ERNESTO
+#   DE OLAZAVAL TEJADA" (Desafiliado, dato real preexistente) y
+#   corr_afiliado=2 (mismo cliente, estado Afiliado, agregado via SQL
+#   para destrabar CP001/CP005/CP007/CP008/CP009).
+
+add("CP001", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("926226")
+capturar_paso(app, "cliente_ingresado", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+ir_al_tope(frame)
+capturar_paso(app, "titulares_mostrados", paso_excel=4)
+dialogo = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+assert dialogo.count() == 0 or not dialogo.first.is_visible(), f"No se esperaba ningun dialogo de rechazo para el cliente 926226 (elegible, sin restricciones): {dialogo.first.inner_text() if dialogo.count() else None!r}"
+filas = filas_tabla(frame)
+assert filas.count() >= 1, f"Se esperaba al menos 1 titular del cliente 926226 en la grilla, se vieron {filas.count()}"
+texto_grilla = " | ".join(filas.nth(i).inner_text().replace("\\n", " ") for i in range(filas.count()))
+assert "Afiliado" in texto_grilla, f"Se esperaba ver al menos un titular en estado Afiliado: {texto_grilla!r}"
+''')
+
 
 def render_all():
     if not CASES:
