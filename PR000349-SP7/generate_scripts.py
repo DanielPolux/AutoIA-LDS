@@ -478,6 +478,50 @@ filas = filas_tabla(frame)
 assert filas.count() == 0, f"El cliente con tarifa BT6 NO deberia cargar titulares, se vieron {filas.count()}"
 ''')
 
+# Plan "PLAN FAMILIAR" de la matriz NO EXISTE: confirmado en vivo
+# 14/10/2026 que el Encargo 0002 solo tiene 3 planes reales (A/B/C,
+# sin descripcion) tanto en esta pantalla (API ObtenerPlanesPorEncargo:
+# [{"codigoPlan":"A","monto":2.48},{"B",1.49},{"C",0.99}], sin campo de
+# nombre) como en la pantalla analoga "Administracion De Planes De
+# Encargo" de PR000349-SP6 (misma data real, columna Descripcion vacia
+# para los 3). Se usa Plan "A". Nivel "General" para evitar necesitar
+# un Promotor o Rol de Promotor Especial real (el combo Promotor no
+# tiene opciones cargadas en el ambiente).
+# Mensajes EXACTOS confirmados por el manual real (RF-01, seccion 3.4/
+# 3.6): "Titular registrado correctamente." tras Grabar.
+add("CP003", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("926226")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+frame.get_by_role("button", name=re.compile(r"^Ingresar$", re.I)).click()
+app.wait_for_timeout(1000)
+frame.locator('input[name="fechaNacimiento"]').fill("1990-05-20")
+frame.locator('input[name="nombres"]').fill("JUAN CARLOS")
+frame.locator('input[name="apellidos"]').fill("GARCIA PEREZ")
+frame.locator("#selTipoDoc").select_option(value="005")
+frame.locator('input[name="numeroDocumento"]').fill("08945612")
+frame.locator('input[name="domicilio"]').fill("AV PRUEBA QA 123")
+frame.locator("#selPlan").select_option(value="A")
+frame.locator("#selNivel").select_option(value="GENERAL")
+app.wait_for_timeout(500)
+hoy = date.today().isoformat()
+frame.locator('input[name="fechaAfiliacion"]').fill(hoy)
+ir_al_tope(frame)
+capturar_paso(app, "datos_completos", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Grabar", re.I)).click()
+app.wait_for_timeout(2500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_registro", paso_excel=4, timeout_ms=5000)
+assert "registrado correctamente" in mensaje.lower(), f"Se esperaba el mensaje de titular registrado: {mensaje!r}"
+ir_al_tope(frame)
+capturar_paso(app, "titular_en_grilla", paso_excel=4)
+filas = filas_tabla(frame)
+texto_grilla = " | ".join(filas.nth(i).inner_text().replace("\\n", " ") for i in range(filas.count()))
+assert "GARCIA PEREZ" in texto_grilla, f"Se esperaba ver al nuevo titular JUAN CARLOS GARCIA PEREZ en la grilla: {texto_grilla!r}"
+''')
+
 
 
 def render_all():
