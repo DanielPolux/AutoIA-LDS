@@ -1132,6 +1132,71 @@ assert "40" in valor_final, f"Se esperaba Valor de Cuota = 40.00: {valor_final!r
 ''')
 
 
+# Cliente 9900019 (bloque 3.1). Caso de concurrencia REAL: abre un
+# SEGUNDO navegador/contexto independiente dentro del mismo script
+# (p.chromium.launch de nuevo, reusando login()/abrir_proyectos() que
+# ya son funciones puras parametrizadas por `page` - no hace falta
+# duplicar el helper) para simular "otro usuario" eliminando el mismo
+# registro mientras la Sesion A sigue con el formulario cargado sin
+# haber presionado Modificar todavia. Mensaje de Eliminar tomado del
+# manual de usuario (RF-03): confirmacion "Esta seguro de eliminar..."
+# -> "El cliente fue eliminado correctamente."
+add("CP019", "app, frame = abrir_proyectos(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones.filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+fila_cliente = fila_por_codigo(frame, 1, "9900019")
+fila_cliente.click()
+app.wait_for_timeout(800)
+capturar_paso(app, "sesion_a_cliente_cargado", paso_excel=3)
+
+browser_b = p.chromium.launch(channel="msedge", headless=HEADLESS, slow_mo=SLOWMO)
+context_b = browser_b.new_context(viewport={"width": 1600, "height": 900})
+page_b = context_b.new_page()
+login(page_b, paso_excel=None)
+app_b, frame_b = abrir_proyectos(page_b, paso_excel=None)
+frame_b.locator(".ant-select-selector").first.click()
+app_b.wait_for_timeout(800)
+frame_b.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app_b.wait_for_timeout(2000)
+frame_b.locator(".ant-select-selector").nth(1).click()
+opciones_b = frame_b.locator(".cdk-overlay-container .ant-select-item-option")
+opciones_b.first.wait_for(state="visible", timeout=10000)
+app_b.wait_for_timeout(500)
+opciones_b.filter(has_text="930612").first.click()
+app_b.wait_for_timeout(500)
+frame_b.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app_b.wait_for_timeout(2500)
+fila_cliente_b = fila_por_codigo(frame_b, 1, "9900019")
+fila_cliente_b.click()
+app_b.wait_for_timeout(800)
+frame_b.locator("button", has_text="Eliminar").click()
+app_b.wait_for_timeout(1200)
+mensaje_confirmacion_b = capturar_mensaje_dialogo(app_b, frame_b, "sesion_b_confirmacion_eliminar", paso_excel=None, timeout_ms=5000)
+assert "eliminar" in mensaje_confirmacion_b.lower(), f"Se esperaba la confirmacion de eliminar en la sesion B: {mensaje_confirmacion_b!r}"
+app_b.wait_for_timeout(1500)
+capturar_paso(app_b, "sesion_b_cliente_eliminado", paso_excel=None)
+context_b.close()
+browser_b.close()
+
+frame.locator("#in-numero-cuotas input").fill("10")
+frame.locator("#in-valor-cuota input").fill("40.00")
+frame.locator("button", has_text="Modificar").click()
+app.wait_for_timeout(1500)
+mensaje_rechazo = capturar_mensaje_dialogo(app, frame, "mensaje_rechazo_eliminado", paso_excel=4, timeout_ms=5000)
+assert "eliminado" in mensaje_rechazo.lower(), f"Se esperaba el rechazo por registro eliminado por otro usuario: {mensaje_rechazo!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
