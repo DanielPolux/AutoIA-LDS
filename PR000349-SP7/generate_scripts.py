@@ -155,14 +155,16 @@ def abrir_resumen_afiliacion(page, paso_excel=None):
 # Las 8 pantallas confirmadas con DCABA_DW (ver docstring del modulo).
 
 def filas_tabla(frame):
-    """nz-table de ant-design siempre trae una fila oculta extra
-    tr.ant-table-measure-now de uso interno - filtrarla siempre (ver
-    NUEVO_PROYECTO_CHECKLIST.md, gotchas PR000349-SP1/SP6). Cuando la
-    grilla esta vacia, ant-design agrega ademas una fila placeholder
-    real (tr.ant-table-placeholder, texto "No hay datos") que NO es un
-    registro - filtrarla tambien para que count() refleje filas de
-    datos reales."""
-    return frame.locator("tbody tr:not(.ant-table-measure-now):not(.ant-table-placeholder)")
+    """Las grillas de PR000349-SP7 NO usan ant-table (confirmado en
+    vivo 14/10/2026, grilla Titulares de RF-01): cuando estan vacias
+    muestran una fila placeholder propia `<tr><td class="empty">Sin
+    titulares. Presione Leer.</td></tr>` (colspan completo, sin
+    ninguna clase tipo ant-table-placeholder) - filtrarla por
+    `td.empty` para que count() refleje filas de datos reales. Tambien
+    se excluyen por compatibilidad los patrones ant-table de
+    PR000349-SP6 (ant-table-measure-now/ant-table-placeholder) por si
+    alguna otra pantalla de este proyecto SI los usa."""
+    return frame.locator("tbody tr:not(.ant-table-measure-now):not(.ant-table-placeholder):not(:has(td.empty))")
 
 
 def fila_por_codigo(frame, columna_idx, codigo):
@@ -456,6 +458,26 @@ assert filas.count() >= 1, f"Se esperaba al menos 1 titular del cliente 926226 e
 texto_grilla = " | ".join(filas.nth(i).inner_text().replace("\\n", " ") for i in range(filas.count()))
 assert "Afiliado" in texto_grilla, f"Se esperaba ver al menos un titular en estado Afiliado: {texto_grilla!r}"
 ''')
+
+# Cliente real con tarifa BT6 confirmado en vivo 14/10/2026 (consulta
+# directa a la BD, tabla cliente/columna tarifa): 22340 (otros
+# candidatos: 1416825, 7153, 1279198, 7132). Mensaje real confirmado:
+# "No se puede afiliar cliente con tipo de tarifa BT6." en una Ventana
+# de Validacion normal (no Error de Servicio).
+add("CP002", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("22340")
+capturar_paso(app, "cliente_bt6_ingresado", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_restriccion", paso_excel=4, timeout_ms=5000)
+assert "bt6" in mensaje.lower(), f"Se esperaba el mensaje de restriccion por tarifa BT6: {mensaje!r}"
+filas = filas_tabla(frame)
+assert filas.count() == 0, f"El cliente con tarifa BT6 NO deberia cargar titulares, se vieron {filas.count()}"
+''')
+
 
 
 def render_all():

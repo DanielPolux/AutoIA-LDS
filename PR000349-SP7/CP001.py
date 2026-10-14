@@ -508,14 +508,16 @@ def abrir_resumen_afiliacion(page, paso_excel=None):
 # Las 8 pantallas confirmadas con DCABA_DW (ver docstring del modulo).
 
 def filas_tabla(frame):
-    """nz-table de ant-design siempre trae una fila oculta extra
-    tr.ant-table-measure-now de uso interno - filtrarla siempre (ver
-    NUEVO_PROYECTO_CHECKLIST.md, gotchas PR000349-SP1/SP6). Cuando la
-    grilla esta vacia, ant-design agrega ademas una fila placeholder
-    real (tr.ant-table-placeholder, texto "No hay datos") que NO es un
-    registro - filtrarla tambien para que count() refleje filas de
-    datos reales."""
-    return frame.locator("tbody tr:not(.ant-table-measure-now):not(.ant-table-placeholder)")
+    """Las grillas de PR000349-SP7 NO usan ant-table (confirmado en
+    vivo 14/10/2026, grilla Titulares de RF-01): cuando estan vacias
+    muestran una fila placeholder propia `<tr><td class="empty">Sin
+    titulares. Presione Leer.</td></tr>` (colspan completo, sin
+    ninguna clase tipo ant-table-placeholder) - filtrarla por
+    `td.empty` para que count() refleje filas de datos reales. Tambien
+    se excluyen por compatibilidad los patrones ant-table de
+    PR000349-SP6 (ant-table-measure-now/ant-table-placeholder) por si
+    alguna otra pantalla de este proyecto SI los usa."""
+    return frame.locator("tbody tr:not(.ant-table-measure-now):not(.ant-table-placeholder):not(:has(td.empty))")
 
 
 def fila_por_codigo(frame, columna_idx, codigo):
