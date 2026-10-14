@@ -997,6 +997,43 @@ assert estado_despues == "Revocado", f"La relacion deberia quedar Revocado: {est
 ''')
 
 
+# ============================================================================
+# RF-03 Consulta de Proyectos de Encargos (app-proyecto). Tambien
+# ant-design. Encargo y Descripcion de Proyecto son combos
+# .ant-select-selector (indices 0 y 1) - el combo Proyecto carga sus
+# opciones via API tras elegir el Encargo, puede tardar >1s, esperar
+# el primer .ant-select-item-option visible antes de buscar por texto.
+# Tras un Leer exitoso el boton cambia de "Leer" a "Sgtes" (paginacion
+# real, NO hacen falta los 30 clientes descartables del bloque 3.2 -
+# el proyecto 930612 YA supera una pagina con datos reales).
+# ============================================================================
+
+# 4 clientes descartables (9900018-21) sembrados en el proyecto 930612
+# del encargo 0001 (ver Documentos, bloque 3.1) - confirmados en vivo
+# en la grilla real junto a ~26 clientes reales preexistentes.
+add("CP016", "app, frame = abrir_proyectos(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones.filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+ir_al_tope(frame)
+capturar_paso(app, "primera_pagina_clientes", paso_excel=3)
+filas = filas_tabla(frame)
+assert filas.count() > 0, "Se esperaba al menos 1 cliente en la primera pagina del proyecto"
+texto_grilla = frame.locator("tbody").inner_text()
+for cliente_descartable in ["9900018", "9900019", "9900020", "9900021"]:
+    assert cliente_descartable in texto_grilla, f"Se esperaba ver el cliente {cliente_descartable} en la grilla"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
