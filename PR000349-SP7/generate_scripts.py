@@ -1034,6 +1034,49 @@ for cliente_descartable in ["9900018", "9900019", "9900020", "9900021"]:
 ''')
 
 
+# Confirmado en vivo: con solo los 4 clientes del bloque 3.1, la
+# pagina 2 salia VACIA (el proyecto 930612 no superaba una pagina por
+# si solo, contra lo que se asumio al escribir CP016) - hizo falta
+# sembrar tambien el bloque 3.2 (30 clientes descartables 9900101-130)
+# para que CP017 tenga algo real que paginar.
+add("CP017", "app, frame = abrir_proyectos(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones.filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+filas1 = filas_tabla(frame)
+clientes_pagina1 = set()
+for i in range(filas1.count()):
+    cols = filas1.nth(i).inner_text().split("\\t")
+    if len(cols) > 1 and cols[1].strip():
+        clientes_pagina1.add(cols[1].strip())
+assert len(clientes_pagina1) > 0, "Se esperaba al menos 1 cliente en la primera pagina"
+ir_al_tope(frame)
+capturar_paso(app, "primera_pagina", paso_excel=3)
+frame.locator("button", has_text="Sgtes").click()
+app.wait_for_timeout(2500)
+ir_al_tope(frame)
+capturar_paso(app, "segunda_pagina", paso_excel=4)
+filas2 = filas_tabla(frame)
+clientes_pagina2 = set()
+for i in range(filas2.count()):
+    cols = filas2.nth(i).inner_text().split("\\t")
+    if len(cols) > 1 and cols[1].strip():
+        clientes_pagina2.add(cols[1].strip())
+assert len(clientes_pagina2) > 0, "Se esperaba al menos 1 cliente en la segunda pagina"
+interseccion = clientes_pagina1 & clientes_pagina2
+assert not interseccion, f"La pagina 2 NO debio repetir clientes de la pagina 1: {interseccion}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
