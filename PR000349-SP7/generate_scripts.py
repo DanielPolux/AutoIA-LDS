@@ -774,6 +774,35 @@ assert filas_restantes.count() == 0, f"Quedaron beneficiarios de prueba sin limp
 
 
 
+# ============================================================================
+# RF-02 Mantenimiento de Clientes de Encargos (app-cliente-encargo).
+# A diferencia de RF-01, esta pantalla SI usa ant-design (.ant-select-
+# selector) para los combos Encargo y Descripcion del Proyecto.
+# Inputs reales confirmados por name: numeroCliente, numeroCuotas,
+# valorCuota. Nombre del Cliente y Codigo de Proyecto son readonly SIN
+# name (posicion fija en el DOM, documentado en cada caso). Estado se
+# lee de span.estado-tag.
+# ============================================================================
+
+# Cliente 4016918 YA tiene relacion vigente real en el encargo 0001
+# (proyecto 930591, 19 cuotas) - sin necesitar SQL.
+add("CP010", "app, frame = abrir_cliente_encargo(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("4016918")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+ir_al_tope(frame)
+capturar_paso(app, "relacion_vigente", paso_excel=3)
+estado = frame.locator("span.estado-tag").inner_text().strip()
+assert estado == "Vigente", f"Se esperaba estado Vigente: {estado!r}"
+cuotas = frame.locator("#numeroCuotas input").input_value()
+assert cuotas.strip() != "", f"Se esperaba un N. de Cuotas visible: {cuotas!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
