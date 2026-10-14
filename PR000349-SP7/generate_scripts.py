@@ -626,6 +626,38 @@ assert campo_nombres.get_attribute("disabled") is not None, "El formulario NO de
 ''')
 
 
+# Reusa el titular Preafiliado REAL creado por CP003 (corr_afiliado=3,
+# GARCIA PEREZ JUAN CARLOS, cliente 926226) en vez del INSERT de la
+# matriz - la propia matriz admite que su INSERT no sirve para esto
+# ("Pruebas no tiene filas en estado P, asi que el caso parte del
+# titular activo del bloque 1.1" - su plantilla pone estado='A', no
+# 'P'). DEPENDE de que CP003 se haya corrido antes (orden alfabetico
+# normal de run_all.py) - si se corre CP007 aislado sin CP003 previo,
+# fallara por no encontrar un Preafiliado.
+add("CP007", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("926226")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+fila_titular = fila_por_codigo(frame, 0, "3")
+fila_titular.click()
+app.wait_for_timeout(500)
+capturar_paso(app, "titular_preafiliado_seleccionado", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"^Afiliar$", re.I)).click()
+app.wait_for_timeout(1000)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_afiliar", paso_excel=4, timeout_ms=5000)
+assert "seguro" in mensaje_confirmacion.lower() and "afiliar" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de afiliar: {mensaje_confirmacion!r}"
+app.wait_for_timeout(1000)
+mensaje_exito = capturar_mensaje_dialogo(app, frame, "mensaje_afiliado", paso_excel=5, timeout_ms=5000)
+assert "afiliado correctamente" in mensaje_exito.lower(), f"Se esperaba confirmacion de afiliacion exitosa: {mensaje_exito!r}"
+app.wait_for_timeout(500)
+fila_actualizada = fila_por_codigo(frame, 0, "3")
+assert "Afiliado" in fila_actualizada.inner_text(), f"El titular deberia quedar en estado Afiliado: {fila_actualizada.inner_text()!r}"
+''')
+
+
 
 def render_all():
     if not CASES:
