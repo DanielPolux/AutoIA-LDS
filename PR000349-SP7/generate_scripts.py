@@ -1432,6 +1432,35 @@ assert "GARCIA PEREZ" in texto_grilla, f"Se esperaba el nombre del afiliado: {te
 ''')
 
 
+# Confirmado en vivo: Buscar con solo el Encargo (sin ningun otro
+# filtro) muestra una CONFIRMACION (no un simple aviso) antes de
+# ejecutar la consulta. Se responde Cancelar para no disparar una
+# consulta real sin filtros (podria ser lenta/pesada sobre miles de
+# afiliados, segun el propio mensaje).
+add("CP029", "app, frame = abrir_encargos_cobranza(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(300)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+capturar_paso(app, "sin_filtros", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(1200)
+dialogo = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+dialogo.first.wait_for(state="visible", timeout=5000)
+mensaje = dialogo.first.inner_text()
+capturar_paso(app, "advertencia_sin_filtros", paso_excel=4)
+assert "no ingres" in mensaje.lower() and "filtro" in mensaje.lower(), f"Se esperaba la advertencia de busqueda sin filtros: {mensaje!r}"
+assert "demorar" in mensaje.lower() or "demora" in mensaje.lower(), f"Se esperaba que la advertencia mencione la posible demora: {mensaje!r}"
+boton_cancelar = dialogo.first.get_by_role("button", name=re.compile(r"Cancelar", re.I))
+if boton_cancelar.count():
+    boton_cancelar.first.click()
+    app.wait_for_timeout(500)
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
