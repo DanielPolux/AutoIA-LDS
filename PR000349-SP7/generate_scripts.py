@@ -963,6 +963,40 @@ assert not boton_modificar.is_enabled(), "El boton Modificar NO debio quedar hab
 ''')
 
 
+# Revoca el cliente 1200017 que CP011 dejo Vigente (NO el cliente real
+# 4016918 de CP010, para no tocar produccion real). Mismo patron de
+# Cerrar+Leer para confirmar el estado real tras revocar.
+add("CP015", "app, frame = abrir_cliente_encargo(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200017")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+estado_antes = frame.locator("span.estado-tag").inner_text().strip()
+assert estado_antes == "Vigente", f"Se esperaba partir de una relacion Vigente: {estado_antes!r}"
+capturar_paso(app, "relacion_vigente_antes_de_revocar", paso_excel=3)
+frame.locator("button", has_text="Revocar").click()
+app.wait_for_timeout(1200)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_revocar", paso_excel=4, timeout_ms=5000)
+assert "revocada" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de revocar: {mensaje_confirmacion!r}"
+app.wait_for_timeout(1500)
+frame.locator("button", has_text="Cerrar").click()
+app.wait_for_timeout(1000)
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200017")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+capturar_paso(app, "relacion_revocada", paso_excel=5)
+estado_despues = frame.locator("span.estado-tag").inner_text().strip()
+assert estado_despues == "Revocado", f"La relacion deberia quedar Revocado: {estado_despues!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
