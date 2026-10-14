@@ -658,6 +658,36 @@ assert "Afiliado" in fila_actualizada.inner_text(), f"El titular deberia quedar 
 ''')
 
 
+# Cliente 1291599, titular corr_afiliado=2 clonado por SQL (ver
+# Documentos/datos_prueba_RF01.sql bloque 1.3-B - el INSERT original de
+# la matriz apuntaba por error a 926226, no a este cliente) + agenda
+# sector 1/zona 140 en estado 'X' (bloque 1.4). El rechazo ocurre tras
+# la confirmacion "Si" (2 dialogos en secuencia, igual patron que
+# CP007 pero terminando en rechazo en vez de exito).
+add("CP008", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("1291599")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+fila_titular = fila_por_codigo(frame, 0, "2")
+fila_titular.click()
+app.wait_for_timeout(500)
+capturar_paso(app, "titular_afiliado_en_facturacion", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"^Desafiliar$", re.I)).click()
+app.wait_for_timeout(1000)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_desafiliar", paso_excel=4, timeout_ms=5000)
+assert "seguro" in mensaje_confirmacion.lower() and "desafiliar" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de desafiliar: {mensaje_confirmacion!r}"
+app.wait_for_timeout(1000)
+mensaje_rechazo = capturar_mensaje_dialogo(app, frame, "mensaje_rechazo_facturacion", paso_excel=5, timeout_ms=5000)
+assert "facturaci" in mensaje_rechazo.lower(), f"Se esperaba el mensaje de rechazo por facturacion: {mensaje_rechazo!r}"
+app.wait_for_timeout(500)
+fila_final = fila_por_codigo(frame, 0, "2")
+assert "Afiliado" in fila_final.inner_text() and "Desafiliado" not in fila_final.inner_text(), f"El titular NO debio desafiliarse: {fila_final.inner_text()!r}"
+''')
+
+
 
 def render_all():
     if not CASES:
