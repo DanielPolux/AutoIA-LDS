@@ -1461,6 +1461,47 @@ if boton_cancelar.count():
 ''')
 
 
+# Nivel Promotor (indice 4) requiere Estado (indice 2) seleccionado
+# ANTES para habilitar el campo Rol (confirmado en vivo: el input #rol
+# queda disabled con tooltip "Seleccione un Estado para habilitar este
+# filtro" hasta elegir ambos, Nivel=LDS Y Estado - no alcanza con
+# Nivel solo, contra lo que sugeria la precondicion de la matriz).
+# CCQ es un rol REAL (visto en rol_desafiliac de otros afiliados) pero
+# en este ambiente no cruza con ningun afiliado en estado Afiliado
+# para este encargo (solo DACD tiene 1 afiliado real con rol_afiliacion
+# no vacio) - por eso el objetivo del caso es confirmar que el filtro
+# se ACEPTA sin rechazo (a diferencia de CP031, que prueba un rol
+# inexistente), no que traiga resultados no vacios.
+add("CP030", "app, frame = abrir_encargos_cobranza(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(300)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+combos = frame.locator(".ant-select-selector")
+combos.nth(2).click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Afiliado").first.click()
+app.wait_for_timeout(500)
+combos.nth(4).click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="LDS").first.click()
+app.wait_for_timeout(500)
+campo_rol = frame.locator("#rol")
+assert campo_rol.get_attribute("disabled") is None, "El campo Rol deberia habilitarse tras elegir Nivel Especial y Estado"
+campo_rol.fill("CCQ")
+capturar_paso(app, "filtro_nivel_especial_rol", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(2500)
+dialogo_rechazo = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+texto_rechazo = dialogo_rechazo.first.inner_text() if dialogo_rechazo.count() else "(ninguno)"
+assert not dialogo_rechazo.count(), f"El rol CCQ es valido, no deberia rechazarse: {texto_rechazo!r}"
+capturar_paso(app, "busqueda_aceptada", paso_excel=4)
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
