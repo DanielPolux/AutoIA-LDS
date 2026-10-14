@@ -1077,6 +1077,61 @@ assert not interseccion, f"La pagina 2 NO debio repetir clientes de la pagina 1:
 ''')
 
 
+# Cliente 9900018 (bloque 3.1, mismo del proyecto 930612). Campos de
+# Datos de Cuota confirmados por id real: #in-numero-cuotas,
+# #in-valor-cuota (nz-input-number, apuntar al "input" interno).
+add("CP018", "app, frame = abrir_proyectos(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones.filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+fila_cliente = fila_por_codigo(frame, 1, "9900018")
+fila_cliente.click()
+app.wait_for_timeout(800)
+frame.locator("#in-numero-cuotas input").fill("10")
+frame.locator("#in-valor-cuota input").fill("40.00")
+capturar_paso(app, "cuotas_modificadas", paso_excel=3)
+frame.locator("button", has_text="Modificar").click()
+app.wait_for_timeout(1200)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_modificar", paso_excel=4, timeout_ms=5000)
+assert "cuota" in mensaje_confirmacion.lower() or "modificar" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de modificar cuotas: {mensaje_confirmacion!r}"
+app.wait_for_timeout(1500)
+# El boton "Leer" se vuelve "Sgtes" tras la 1ra consulta (igual que en
+# CP016/CP017) - hay que Cerrar y rearmar Encargo+Proyecto+Leer para
+# confirmar el estado real, no solo re-clickear "Leer".
+frame.locator("button", has_text="Cerrar").click()
+app.wait_for_timeout(1000)
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones2 = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones2.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones2.filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+capturar_paso(app, "cuotas_confirmadas", paso_excel=5)
+fila_final = fila_por_codigo(frame, 1, "9900018")
+fila_final.click()
+app.wait_for_timeout(800)
+cuotas_final = frame.locator("#in-numero-cuotas input").input_value()
+valor_final = frame.locator("#in-valor-cuota input").input_value()
+assert cuotas_final.strip() == "10", f"Se esperaba N. de Cuotas = 10: {cuotas_final!r}"
+assert "40" in valor_final, f"Se esperaba Valor de Cuota = 40.00: {valor_final!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
