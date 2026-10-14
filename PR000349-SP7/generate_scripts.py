@@ -688,6 +688,91 @@ assert "Afiliado" in fila_final.inner_text() and "Desafiliado" not in fila_final
 ''')
 
 
+# Titular corr_afiliado=2 (cliente 926226, mismo reusado en
+# CP001/CP004/CP005). Confirmado en vivo 14/10/2026: el limite de
+# beneficiarios esta FIJO en 5 en el codigo actual, NO conectado al
+# catalogo PARSEG/MBENAF que documenta el ET (se probo sembrar
+# MBENAF=2 y no tuvo ningun efecto - hallazgo real, ver memoria del
+# proyecto). "Agregar Beneficiario" graba de inmediato en el servidor
+# (no es un borrador local que recien se persiste con Grabar) - por
+# eso el caso agrega y LUEGO borra los 5 beneficiarios de prueba, para
+# no dejar basura en el titular que reusan otros casos de RF-01.
+add("CP009", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("926226")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+fila_titular = fila_por_codigo(frame, 0, "2")
+fila_titular.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"^Modificar$", re.I)).click()
+app.wait_for_timeout(1000)
+frame.get_by_text("Beneficiarios", exact=True).click()
+app.wait_for_timeout(800)
+
+boton_agregar = frame.locator("button", has_text="Agregar Beneficiario")
+dialogo = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+beneficiarios_prueba = [
+    ("ANA", "LIMITE BENEF UNO", "2010-01-15", "20"),
+    ("LUIS", "LIMITE BENEF DOS", "2011-02-20", "20"),
+    ("CARLOS", "LIMITE BENEF TRES", "2012-03-25", "20"),
+    ("MARIA", "LIMITE BENEF CUATRO", "2013-04-30", "20"),
+    ("JOSE", "LIMITE BENEF CINCO", "2014-05-10", "20"),
+]
+for nombres, apellidos, fecha_nac, porcentaje in beneficiarios_prueba:
+    frame.locator(\'input[name="benNombres"]\').fill(nombres)
+    frame.locator(\'input[name="benApellidos"]\').fill(apellidos)
+    frame.locator("#selBenParentesco").select_option(value="02")
+    frame.locator(\'input[name="benFechaNacimiento"]\').fill(fecha_nac)
+    frame.locator(\'input[name="benPorcentaje"]\').fill(porcentaje)
+    boton_agregar.first.click()
+    app.wait_for_timeout(1200)
+    assert not dialogo.count(), f"No se esperaba rechazo agregando el beneficiario {nombres!r} (debajo del limite): {dialogo.first.inner_text() if dialogo.count() else \'\'}"
+
+capturar_paso(app, "limite_de_beneficiarios_alcanzado", paso_excel=3)
+frame.locator(\'input[name="benNombres"]\').fill("PEDRO")
+frame.locator(\'input[name="benApellidos"]\').fill("LIMITE BENEF SEIS")
+frame.locator("#selBenParentesco").select_option(value="02")
+frame.locator(\'input[name="benFechaNacimiento"]\').fill("2015-06-15")
+frame.locator(\'input[name="benPorcentaje"]\').fill("20")
+boton_agregar.first.click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_limite_beneficiarios", paso_excel=4, timeout_ms=5000)
+assert "maximo" in mensaje.lower() or "m\\u00e1ximo" in mensaje.lower(), f"Se esperaba el mensaje de limite de beneficiarios alcanzado: {mensaje!r}"
+assert "beneficiari" in mensaje.lower(), f"Se esperaba que el mensaje mencione \'beneficiarios\': {mensaje!r}"
+
+# Limpieza: borrar los 5 beneficiarios de prueba para no dejar basura
+# en el titular que reusan CP001/CP004/CP005. Tolerante a la animacion
+# ant-spin que aparece brevemente tras cada Borrar (confirmado en vivo:
+# puede interceptar un click aunque el borrado anterior ya haya
+# terminado del lado servidor) - cada intento va envuelto en try/except
+# para no abortar el caso completo por una carrera cosmetica.
+boton_borrar = frame.locator("button", has_text="Borrar Beneficiario")
+for _ in range(10):
+    filas_benef = frame.locator("tbody tr").filter(has_text=re.compile(r"LIMITE BENEF"))
+    if filas_benef.count() == 0:
+        break
+    try:
+        filas_benef.first.click(timeout=8000)
+        app.wait_for_timeout(500)
+        boton_borrar.first.click(timeout=8000)
+        app.wait_for_timeout(1200)
+        for _reintento in range(2):
+            if dialogo.count():
+                boton_ok = dialogo.first.get_by_role("button", name=re.compile(r"Aceptar", re.I))
+                if boton_ok.count():
+                    boton_ok.first.click(timeout=5000)
+                    app.wait_for_timeout(1200)
+    except PWTimeoutError:
+        app.wait_for_timeout(1000)
+app.wait_for_timeout(500)
+filas_restantes = frame.locator("tbody tr").filter(has_text=re.compile(r"LIMITE BENEF"))
+assert filas_restantes.count() == 0, f"Quedaron beneficiarios de prueba sin limpiar: {filas_restantes.count()}"
+''')
+
+
 
 def render_all():
     if not CASES:
