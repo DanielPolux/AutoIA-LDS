@@ -601,6 +601,31 @@ app.wait_for_timeout(500)
 ''')
 
 
+# Cliente 52124 (sin necesidad de SQL - confirmado en vivo 14/10/2026
+# que ya tiene 2 titulares reales en estado Desafiliado). El rechazo
+# ocurre de inmediato al presionar Modificar (igual patron que CP004
+# con Ingresar), sin necesitar llenar ni Grabar nada.
+add("CP006", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("52124")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+fila_titular = fila_por_codigo(frame, 0, "1")
+fila_titular.click()
+app.wait_for_timeout(500)
+capturar_paso(app, "titular_desafiliado_seleccionado", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"^Modificar$", re.I)).click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_rechazo", paso_excel=4, timeout_ms=5000)
+assert "no se puede modificar" in mensaje.lower(), f"Se esperaba el mensaje de rechazo por estado Desafiliado: {mensaje!r}"
+assert "desafiliado" in mensaje.lower(), f"Se esperaba que el mensaje mencione el estado Desafiliado: {mensaje!r}"
+campo_nombres = frame.locator(\'input[name="nombres"]\')
+assert campo_nombres.get_attribute("disabled") is not None, "El formulario NO debio habilitarse para edicion tras el rechazo"
+''')
+
+
 
 def render_all():
     if not CASES:
