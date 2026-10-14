@@ -1249,6 +1249,55 @@ assert "Revocado" in fila_final.inner_text(), f"El cliente deberia quedar Revoca
 ''')
 
 
+# Cliente 9900021 (bloque 3.1). Mismo patron de Eliminar que la
+# Sesion B de CP019 (mensaje "El cliente fue eliminado correctamente.").
+add("CP021", "app, frame = abrir_proyectos(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones.filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+fila_cliente = fila_por_codigo(frame, 1, "9900021")
+assert "Vigente" in fila_cliente.inner_text(), f"Se esperaba partir de un cliente Vigente: {fila_cliente.inner_text()!r}"
+fila_cliente.click()
+app.wait_for_timeout(800)
+capturar_paso(app, "cliente_vigente_antes_de_eliminar", paso_excel=3)
+frame.locator("button", has_text="Eliminar").click()
+app.wait_for_timeout(1200)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_eliminar", paso_excel=4, timeout_ms=5000)
+assert "eliminar" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de eliminar: {mensaje_confirmacion!r}"
+app.wait_for_timeout(1000)
+mensaje_exito = capturar_mensaje_dialogo(app, frame, "mensaje_eliminado", paso_excel=5, timeout_ms=5000)
+assert "eliminado correctamente" in mensaje_exito.lower(), f"Se esperaba confirmacion de eliminado exitoso: {mensaje_exito!r}"
+app.wait_for_timeout(1000)
+frame.locator("button", has_text="Cerrar").click()
+app.wait_for_timeout(1000)
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones2 = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones2.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones2.filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+ir_al_tope(frame)
+capturar_paso(app, "cliente_eliminado", paso_excel=6)
+fila_final = fila_por_codigo(frame, 1, "9900021")
+assert "Eliminado" in fila_final.inner_text(), f"El cliente deberia quedar Eliminado: {fila_final.inner_text()!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
