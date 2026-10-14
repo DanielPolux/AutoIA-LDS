@@ -1502,6 +1502,45 @@ capturar_paso(app, "busqueda_aceptada", paso_excel=4)
 ''')
 
 
+# Confirmado en vivo: la validacion de Rol inexistente usa un POPOVER
+# propio (clase "cdk-overlay-popover", boton "button.conf-btn-ok"),
+# NO el patron .ant-modal/nz-modal-container del resto de la app -
+# necesita click(force=True) porque un wrapper overlay intercepta el
+# click normal aunque el boton este visible/enabled.
+add("CP031", "app, frame = abrir_encargos_cobranza(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(300)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+combos = frame.locator(".ant-select-selector")
+combos.nth(2).click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Afiliado").first.click()
+app.wait_for_timeout(500)
+combos.nth(4).click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="LDS").first.click()
+app.wait_for_timeout(500)
+campo_rol = frame.locator("#rol")
+campo_rol.fill("XXXX")
+campo_rol.blur()
+app.wait_for_timeout(1500)
+popover = frame.locator(".cdk-overlay-popover").filter(has_text=re.compile(".", re.S))
+popover.first.wait_for(state="visible", timeout=5000)
+mensaje = popover.first.inner_text()
+capturar_paso(app, "mensaje_rol_inexistente", paso_excel=3)
+assert "no existe" in mensaje.lower(), f"Se esperaba el aviso de rol inexistente: {mensaje!r}"
+assert "xxxx" in mensaje.lower(), f"Se esperaba que el mensaje mencione el rol ingresado: {mensaje!r}"
+frame.locator("button.conf-btn-ok").first.click(force=True)
+app.wait_for_timeout(800)
+valor_final = campo_rol.input_value()
+assert valor_final.strip() == "", f"El campo Rol deberia quedar limpio: {valor_final!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
