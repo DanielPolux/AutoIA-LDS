@@ -841,6 +841,52 @@ assert estado == "Vigente", f"La relacion deberia quedar Vigente: {estado!r}"
 ''')
 
 
+# Cliente 1200001, encargo 0001, relacion vigente real con proyecto
+# 880390 (ver Documentos/datos_prueba_RF01.sql - bloque de RF-02,
+# INSERT manual en encarg_cli). A diferencia del Plan de RF-01, aqui
+# el combo Descripcion del Proyecto SI muestra su descripcion real
+# (sin hueco de datos) y queda editable sin necesitar un primer clic
+# en Modificar.
+add("CP012", "app, frame = abrir_cliente_encargo(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200001")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+app.wait_for_timeout(500)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+capturar_paso(app, "proyecto_distinto_seleccionado", paso_excel=3)
+frame.locator("button", has_text="Modificar").click()
+app.wait_for_timeout(1200)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_modificar", paso_excel=4, timeout_ms=5000)
+assert "modificar" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de modificar: {mensaje_confirmacion!r}"
+app.wait_for_timeout(1000)
+mensaje_rechazo = capturar_mensaje_dialogo(app, frame, "mensaje_rechazo_proyecto", paso_excel=5, timeout_ms=5000)
+assert "otro proyecto" in mensaje_rechazo.lower(), f"Se esperaba el rechazo por proyecto duplicado: {mensaje_rechazo!r}"
+app.wait_for_timeout(1000)
+# El combo queda mostrando localmente la seleccion del usuario (930612)
+# aunque el backend haya rechazado el cambio - hay que Cerrar y volver
+# a Leer desde cero para confirmar el estado REAL guardado en el
+# servidor, no confiar en lo que la UI muestra tras el rechazo.
+frame.locator("button", has_text="Cerrar").click()
+app.wait_for_timeout(1000)
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200001")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+capturar_paso(app, "proyecto_original_conservado", paso_excel=6)
+combo_proyecto_final = frame.locator(".ant-select-selector").nth(1).inner_text()
+assert "880390" in combo_proyecto_final, f"El proyecto original debia conservarse (880390): {combo_proyecto_final!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
