@@ -1389,6 +1389,49 @@ assert "no se seleccionaron archivos" in mensaje.lower(), f"Se esperaba el mensa
 ''')
 
 
+# ============================================================================
+# RF-05 Encargos de Cobranza (app-lisafi). Ant-design. Combo Encargo
+# (indice 0) muestra SOLO la descripcion, SIN codigo (ej. "PLUZ
+# PROTECCION", no "0002 - PLUZ PROTECCION" como en otras pantallas) -
+# filtrar por el nombre, no por el codigo. Inputs confirmados por id:
+# numeroCliente, apellidos, nombre, numeroDocumento, telefono, rol,
+# afiliadosDesde/Hasta, desafDesde/Hasta, regDesde/Hasta (type=date).
+#
+# HALLAZGO IMPORTANTE (14/10/2026): el endpoint real de busqueda es
+# ObtenerAfiliadosVenta. Se probo primero con el cliente 219761
+# (corr_afiliado=2 clonado por SQL directo sobre `afiliados`, mismo
+# patron que RF-01) y NO aparecio en los resultados, pese a existir
+# confirmado con SELECT. En cambio el cliente 926226 (corr_afiliado=3,
+# titular creado por la UI REAL en CP003/CP007) SI aparecio
+# correctamente. Conclusion: RF-05 probablemente lee de una tabla
+# replicada (afiliados_ofi, mencionada en el ET como destino de
+# RegistrarTitular/ModificarTitular "por cada oficina vigente") que un
+# INSERT/UPDATE directo sobre `afiliados` NUNCA puebla - un gap de
+# tabla secundaria, no de datos en si. Por eso TODOS los casos de
+# RF-05 que necesiten un afiliado real usan 926226 (dato organico ya
+# generado por la UI), evitando crear mas fixtures SQL nuevos para
+# este RF.
+# ============================================================================
+
+add("CP028", "app, frame = abrir_encargos_cobranza(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(300)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+frame.locator("#numeroCliente").fill("926226")
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(2500)
+ir_al_tope(frame)
+capturar_paso(app, "resultado_busqueda", paso_excel=4)
+texto_grilla = frame.locator("tbody").inner_text()
+assert "926226" in texto_grilla, f"Se esperaba ver al cliente 926226 en los resultados: {texto_grilla!r}"
+assert "GARCIA PEREZ" in texto_grilla, f"Se esperaba el nombre del afiliado: {texto_grilla!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
