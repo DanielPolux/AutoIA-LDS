@@ -554,6 +554,53 @@ assert filas_despues == filas_antes, f"No debio agregarse ningun titular nuevo: 
 ''')
 
 
+# Titular corr_afiliado=2 (cliente 926226, encargo 0002, bloque 1.1 de
+# datos_prueba_RF01.sql) - mismo usado en CP001/CP004. Domicilio
+# original 'UNO', se cambia a 'AV. LOS ANGELES 452 DPTO 302' (dato de
+# la matriz). fecha_nacimiento tuvo que completarse aparte (estaba en
+# blanco incluso en el titular real original corr=1 - ver memoria del
+# proyecto) porque Modificar la exige (RN no documentada en la matriz).
+# Confirmado en vivo 14/10/2026: tras Grabar, el boton "Historial de
+# Auditoria..." abre un MODAL dentro del mismo frame (no una ventana
+# nueva) con columnas Cambio/Dato Anterior/Dato Modificado/Rol/Fecha -
+# fila real vista: "Domicilio | UNO | AV. LOS ANGELES 452 DPTO 302 |
+# DACD | 14/10/2026".
+add("CP005", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("926226")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+fila_titular = fila_por_codigo(frame, 0, "2")
+fila_titular.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"^Modificar$", re.I)).click()
+app.wait_for_timeout(1000)
+nuevo_domicilio = "AV. LOS ANGELES 452 DPTO 302"
+frame.locator(\'input[name="domicilio"]\').fill(nuevo_domicilio)
+ir_al_tope(frame)
+capturar_paso(app, "domicilio_cambiado", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Grabar", re.I)).click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_modificado", paso_excel=4, timeout_ms=5000)
+assert "modificado correctamente" in mensaje.lower(), f"Se esperaba confirmacion de modificacion: {mensaje!r}"
+fila_titular = fila_por_codigo(frame, 0, "2")
+fila_titular.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Historial de Auditor", re.I)).click()
+app.wait_for_timeout(1500)
+capturar_paso(app, "historial_auditoria", paso_excel=5)
+texto_historial = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S)).first.inner_text()
+assert "Domicilio" in texto_historial, f"El historial deberia registrar el cambio de Domicilio: {texto_historial!r}"
+assert nuevo_domicilio in texto_historial, f"El historial deberia mostrar el nuevo domicilio: {texto_historial!r}"
+boton_cerrar = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S)).first.get_by_role("button", name=re.compile(r"^Cerrar$", re.I))
+if boton_cerrar.count():
+    boton_cerrar.first.click()
+app.wait_for_timeout(500)
+''')
+
+
 
 def render_all():
     if not CASES:
