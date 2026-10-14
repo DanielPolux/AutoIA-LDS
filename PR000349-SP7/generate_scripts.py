@@ -1298,6 +1298,31 @@ assert "Eliminado" in fila_final.inner_text(), f"El cliente deberia quedar Elimi
 ''')
 
 
+# ============================================================================
+# RF-04 Restaura y Transfiere a Proceso (app-traslado). Sin grilla de
+# consulta - un input[type=file] HIDDEN (confirmado en vivo, count=1,
+# sin atributo "multiple" visible) detras del link "Seleccionar
+# archivo(s)". Apuntar DIRECTO a ese input con set_input_files(), sin
+# necesitar expect_file_chooser(). Cada caso CREA sus propios archivos
+# de prueba con tempfile (script 100% autonomo, sin depender de
+# archivos externos al repo).
+# ============================================================================
+
+add("CP023", "app, frame = abrir_traslado(page, paso_excel=2)", '''
+import tempfile
+tmp_dir = Path(tempfile.mkdtemp(prefix="cp023_"))
+archivo1 = tmp_dir / "CLIENTE_ENCARGO_QA_001.txt"
+archivo1.write_text("Archivo de prueba QA - CP023", encoding="utf-8")
+frame.locator("input[type=\\'file\\']").set_input_files([str(archivo1)])
+app.wait_for_timeout(1200)
+ir_al_tope(frame)
+capturar_paso(app, "archivo_seleccionado", paso_excel=3)
+texto_pantalla = frame.locator("body").inner_text()
+assert "CLIENTE_ENCARGO_QA_001.txt" in texto_pantalla, f"El archivo deberia aparecer en la lista: {texto_pantalla!r}"
+assert "1 archivo" in texto_pantalla, f"Se esperaba el contador en 1 archivo: {texto_pantalla!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
