@@ -522,6 +522,37 @@ texto_grilla = " | ".join(filas.nth(i).inner_text().replace("\\n", " ") for i in
 assert "GARCIA PEREZ" in texto_grilla, f"Se esperaba ver al nuevo titular JUAN CARLOS GARCIA PEREZ en la grilla: {texto_grilla!r}"
 ''')
 
+# Cliente 926226 ya tiene 3 afiliaciones ACTIVAS reales (corr_afiliado
+# 2/4/5 - el corr=3 original del bloque 1.2 quedo tomado por el alta
+# real de CP003, asi que el bloque uso 4 y 5 en su lugar; igual suman 3
+# activas) con el parametro PARSEG/MCLIAF=3 ya sembrado (ver
+# Documentos/datos_prueba_RF01.sql bloques 1.2/1.3). Confirmado en vivo
+# 14/10/2026 (ver _exploracion/dump/cp004_tras_ingresar.png): el rechazo
+# ocurre DE INMEDIATO al presionar "Ingresar" (antes de habilitar el
+# formulario) - no hace falta llenar ni Grabar nada, el limite es por
+# CLIENTE (cuenta todas sus afiliaciones activas sin importar el
+# documento), no por documento como se asumio originalmente. Mensaje
+# real: "El cliente alcanzó el máximo de 3 afiliación(es) activas
+# permitidas."
+add("CP004", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("926226")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+filas_antes = filas_tabla(frame).count()
+capturar_paso(app, "cliente_en_el_limite", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"^Ingresar$", re.I)).click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_limite", paso_excel=4, timeout_ms=5000)
+assert "maximo" in mensaje.lower() or "m\\u00e1ximo" in mensaje.lower(), f"Se esperaba el mensaje de limite de afiliaciones alcanzado: {mensaje!r}"
+assert "afiliaci" in mensaje.lower(), f"Se esperaba que el mensaje mencione 'afiliaciones': {mensaje!r}"
+app.wait_for_timeout(500)
+filas_despues = filas_tabla(frame).count()
+assert filas_despues == filas_antes, f"No debio agregarse ningun titular nuevo: antes={filas_antes} despues={filas_despues}"
+''')
+
 
 
 def render_all():
