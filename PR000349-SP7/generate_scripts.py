@@ -887,6 +887,44 @@ assert "880390" in combo_proyecto_final, f"El proyecto original debia conservars
 ''')
 
 
+# Mismo cliente 1200001 de CP012 (sigue Vigente, proyecto 880390 -
+# CP012 no le cambio nada realmente). Confirmado en vivo: tampoco hay
+# un segundo dialogo de exito tras Modificar (igual que CP011/CP012) -
+# se verifica recargando con Cerrar+Leer, no confiando en los valores
+# que la UI muestra justo despues de confirmar.
+add("CP013", "app, frame = abrir_cliente_encargo(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200001")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+frame.locator("#numeroCuotas input").fill("10")
+frame.locator("#valorCuota input").fill("50.00")
+capturar_paso(app, "cuotas_modificadas", paso_excel=3)
+frame.locator("button", has_text="Modificar").click()
+app.wait_for_timeout(1200)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_modificar", paso_excel=4, timeout_ms=5000)
+assert "modificar" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de modificar: {mensaje_confirmacion!r}"
+app.wait_for_timeout(1500)
+frame.locator("button", has_text="Cerrar").click()
+app.wait_for_timeout(1000)
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200001")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+capturar_paso(app, "cuotas_confirmadas", paso_excel=5)
+cuotas_final = frame.locator("#numeroCuotas input").input_value()
+valor_final = frame.locator("#valorCuota input").input_value()
+assert cuotas_final.strip() == "10", f"Se esperaba N. de Cuotas = 10: {cuotas_final!r}"
+assert "50" in valor_final, f"Se esperaba Valor de Cuota = 50.00: {valor_final!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
