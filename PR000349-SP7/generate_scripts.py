@@ -925,6 +925,44 @@ assert "50" in valor_final, f"Se esperaba Valor de Cuota = 50.00: {valor_final!r
 ''')
 
 
+# Mismo cliente 1200001 (sigue Vigente tras CP013). Por su propio
+# precond, CP014 REVOCA la relacion el mismo (no depende de que otro
+# caso lo haya hecho antes) y luego confirma que Modificar queda
+# bloqueado - 100% autonomo. estado='C' es "Revocado" en la BD real
+# (confirmado en vivo), no 'R'.
+add("CP014", "app, frame = abrir_cliente_encargo(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200001")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+estado_antes = frame.locator("span.estado-tag").inner_text().strip()
+assert estado_antes == "Vigente", f"Se esperaba partir de una relacion Vigente: {estado_antes!r}"
+capturar_paso(app, "relacion_vigente_antes_de_revocar", paso_excel=3)
+frame.locator("button", has_text="Revocar").click()
+app.wait_for_timeout(1200)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_revocar", paso_excel=4, timeout_ms=5000)
+assert "revocada" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de revocar: {mensaje_confirmacion!r}"
+app.wait_for_timeout(1500)
+frame.locator("button", has_text="Cerrar").click()
+app.wait_for_timeout(1000)
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200001")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+estado_despues = frame.locator("span.estado-tag").inner_text().strip()
+assert estado_despues == "Revocado", f"La relacion deberia quedar Revocado: {estado_despues!r}"
+capturar_paso(app, "modificar_bloqueado", paso_excel=5)
+boton_modificar = frame.locator("button", has_text="Modificar")
+assert not boton_modificar.is_enabled(), "El boton Modificar NO debio quedar habilitado sobre una relacion Revocado"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
