@@ -1672,6 +1672,33 @@ assert "registrada correctamente" in mensaje.lower(), f"DEFECTO REAL: se esperab
 ''')
 
 
+# MISMO DEFECTO que CP037, confirmado con dato duplicado real
+# (202703/Marzo-27 sembrado por SQL bloque 6.1): el sistema NO llega a
+# distinguir "duplicado" de "valido" porque RegistrarPromocion falla
+# con el mismo HTTP 500 generico para CUALQUIER intento de registro -
+# confirma que el defecto es sistemico (toda la operacion de registrar
+# esta rota), no especifico de la validacion de ano-mes duplicado.
+add("CP038", "app, frame = abrir_promocion(page, paso_excel=2)", '''
+frame.locator("button", has_text="Ingresar").click()
+app.wait_for_timeout(800)
+combo = frame.locator(".ant-select-selector")
+combo.first.click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Marzo").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2027")
+inputs.nth(2).fill("PROMO DUPLICADA")
+inputs.nth(3).fill("2027-02-15")
+inputs.nth(4).fill("2027-03-31")
+capturar_paso(app, "ano_mes_duplicado", paso_excel=3)
+frame.locator("button", has_text="Aceptar").click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_rechazo", paso_excel=4, timeout_ms=5000)
+assert "ya existe una promoci" in mensaje.lower() and "a\\u00f1o-mes" in mensaje.lower(), f"DEFECTO REAL (mismo que CP037): se esperaba el rechazo especifico por ano-mes duplicado, pero el sistema devuelve el mismo error generico de registro: {mensaje!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
