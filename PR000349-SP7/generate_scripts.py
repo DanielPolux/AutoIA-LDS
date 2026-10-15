@@ -1724,6 +1724,53 @@ assert "fecha de desactivaci" in mensaje.lower() and "mayor a la fecha de activa
 ''')
 
 
+# ============================================================================
+# RF-07 Afiliaciones por Promotores Especiales (app-afiliacion-especial).
+# Ant-design. Encargo (indice 0, unico combo) SI muestra codigo+nombre
+# (ej. "0002 - PLUZ PROTECCION", a diferencia de RF-05). Checkboxes
+# "Afiliados Desde" (marcado por defecto) y "Pagos Desde" (desmarcado)
+# habilitan sus respectivos pares de fecha. Los campos de fecha son
+# nz-date-picker (NO input nativo) - fill() no dispara los eventos que
+# Angular necesita: el valor se pierde al perder foco. Hay que usar
+# click() + press_sequentially("dd/mm/aaaa") igual que en otros
+# proyectos con nz-date-picker.
+#
+# DEFECTO REAL CONFIRMADO 14/10/2026: el campo "Hasta" de Afiliados
+# SIEMPRE se borra solo al perder el foco, sin importar el metodo
+# (fill, press_sequentially) ni el orden de llenado (antes o despues
+# de "Desde") - probado exhaustivamente. "Desde" SI retiene su valor
+# correctamente una vez tecleado con press_sequentially. Bloquea
+# CP042/043/045/046/047 (todos necesitan el rango completo).
+# ============================================================================
+
+add("CP042", "app, frame = abrir_afiliacion_especial(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="0002").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+desde = inputs.nth(4)
+hasta = inputs.nth(5)
+desde.click()
+desde.press_sequentially("01/01/2000")
+frame.locator("body").click()
+app.wait_for_timeout(500)
+hasta.click()
+hasta.press_sequentially("01/10/2026")
+frame.locator("body").click()
+app.wait_for_timeout(800)
+capturar_paso(app, "rango_de_fechas_completado", paso_excel=3)
+valor_hasta = hasta.input_value()
+assert valor_hasta.strip() != "", f"DEFECTO REAL: el campo Hasta de Afiliados pierde su valor al perder el foco, no se puede completar un rango de fechas (valor actual: {valor_hasta!r})"
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(3000)
+texto_grilla = frame.locator("tbody").inner_text()
+assert "No hay datos" not in texto_grilla, f"Se esperaban resultados de afiliaciones de nivel especial: {texto_grilla!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
