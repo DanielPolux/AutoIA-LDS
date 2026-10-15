@@ -1892,6 +1892,35 @@ for col_idx in range(1, num_columnas):
 ''')
 
 
+# Mismo rango de CP048. La columna "Desafiliados Reafiliados" (indice
+# 6) ya tiene datos reales no-cero confirmados en vivo (Enero/2001=9,
+# Marzo=2, Mayo=2) - no hace falta ningun dato de prueba nuevo.
+add("CP051", "app, frame = abrir_resumen_afiliacion(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2001-01-01")
+inputs.nth(2).fill("2001-06-30")
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(3000)
+ir_al_tope(frame)
+capturar_paso(app, "columna_desafiliados_reafiliados", paso_excel=3)
+filas = filas_tabla(frame)
+valores_reafiliados = []
+for i in range(filas.count()):
+    cols = filas.nth(i).inner_text().split("\\t")
+    if not cols or not cols[0].strip() or "Total General" in cols[0]:
+        continue
+    if len(cols) > 6:
+        valores_reafiliados.append(int(cols[6].strip() or 0))
+assert any(v > 0 for v in valores_reafiliados), f"Se esperaba al menos un mes con desafiliados reafiliados > 0: {valores_reafiliados}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
