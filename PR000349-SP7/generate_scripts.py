@@ -1298,6 +1298,40 @@ assert "Eliminado" in fila_final.inner_text(), f"El cliente deberia quedar Elimi
 ''')
 
 
+# RESUELTO 15/10/2026: la matriz pedia encargo 0001 con un proyecto sin
+# clientes, pero los 16 proyectos visibles del combo de 0001 TODOS
+# tienen clientes reales (probados uno por uno) - el combo Proyecto
+# parece armarse solo desde encarg_cli (no desde un catalogo
+# independiente), asi que no hay forma de llegar a un proyecto vacio
+# de 0001 desde la UI. El encargo 0002 (PLUZ PROTECCION) en cambio
+# tiene UN SOLO proyecto en su combo: "000000 - PROYECTO DUMMY" -
+# confirmado en vivo que esta genuinamente vacio ("No hay datos" en la
+# grilla). Se usa este en vez del 0001 que sugeria la matriz - el
+# objetivo real del caso (confirmar el mensaje de listado vacio) queda
+# igual de bien cubierto.
+add("CP022", "app, frame = abrir_proyectos(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0002").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones.filter(has_text="DUMMY").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+capturar_paso(app, "proyecto_sin_clientes", paso_excel=3)
+texto_grilla = frame.locator("tbody").inner_text()
+assert "No hay datos" in texto_grilla, f"Se esperaba el proyecto DUMMY sin clientes: {texto_grilla!r}"
+frame.get_by_role("button", name=re.compile(r"Imprimir", re.I)).click()
+app.wait_for_timeout(2000)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_sin_registros", paso_excel=4, timeout_ms=5000)
+assert "no se encontraron registros" in mensaje.lower(), f"Se esperaba el mensaje de listado vacio: {mensaje!r}"
+''')
+
+
 # ============================================================================
 # RF-04 Restaura y Transfiere a Proceso (app-traslado). Sin grilla de
 # consulta - un input[type=file] HIDDEN (confirmado en vivo, count=1,
