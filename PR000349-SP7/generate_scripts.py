@@ -1855,6 +1855,43 @@ assert "debe ingresar el rango de fechas" in mensaje.lower(), f"Se esperaba el m
 ''')
 
 
+# Mismo rango de CP048 (6 meses reales de 2001). Suma cada columna
+# numerica de las filas de mes y compara contra la fila Total General.
+add("CP050", "app, frame = abrir_resumen_afiliacion(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2001-01-01")
+inputs.nth(2).fill("2001-06-30")
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(3000)
+ir_al_tope(frame)
+capturar_paso(app, "resumen_con_total_general", paso_excel=3)
+filas = filas_tabla(frame)
+filas_mes = []
+fila_total = None
+for i in range(filas.count()):
+    cols = filas.nth(i).inner_text().split("\\t")
+    if not cols or not cols[0].strip():
+        continue
+    if "Total General" in cols[0]:
+        fila_total = cols
+    else:
+        filas_mes.append(cols)
+assert fila_total is not None, "Se esperaba encontrar la fila Total General"
+assert len(filas_mes) >= 3, f"Se esperaban al menos 3 meses con datos: {len(filas_mes)}"
+num_columnas = len(fila_total)
+for col_idx in range(1, num_columnas):
+    suma_manual = sum(int(fila[col_idx].strip() or 0) for fila in filas_mes if col_idx < len(fila))
+    valor_total = int(fila_total[col_idx].strip() or 0)
+    assert suma_manual == valor_total, f"La columna {col_idx} del Total General ({valor_total}) no coincide con la suma manual de los meses ({suma_manual})"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
