@@ -1605,6 +1605,44 @@ assert valor_final.strip() == "", f"El campo Rol deberia quedar limpio: {valor_f
 ''')
 
 
+# RESUELTO 15/10/2026: el bloqueo real NO era de datos - era que el
+# campo "Afiliados Desde/Hasta" es OBLIGATORIO para que la busqueda
+# devuelva CUALQUIER resultado, incluso con Estado=Desafiliado
+# seleccionado (confirmado: Estado solo, sin fechas, da 0; Estado +
+# SOLO Desafiliados Desde/Hasta (como sugeria la matriz) tambien da 0;
+# Estado + AMBOS rangos de fecha llenos da resultados reales - probado
+# con rango amplio 2000-2026 -> 33.199 registros, y acotando
+# Desafiliados Desde/Hasta a mayo/2023 -> 504 registros, confirmando
+# que el filtro de fecha SI funciona). Encargo 0019 (el que pedia la
+# matriz) sigue sin dar NINGUN resultado ni sin filtros - se usa 0002
+# en su lugar, igual que el resto de RF-05.
+add("CP032", "app, frame = abrir_encargos_cobranza(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+combos = frame.locator(".ant-select-selector")
+combos.nth(2).click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Desafiliado").first.click()
+app.wait_for_timeout(500)
+frame.locator("#afiliadosDesde").fill("2000-01-01")
+frame.locator("#afiliadosHasta").fill("2026-10-15")
+frame.locator("#desafDesde").fill("2023-05-01")
+frame.locator("#desafHasta").fill("2023-05-31")
+capturar_paso(app, "filtro_desafiliado_con_rango", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(3000)
+ir_al_tope(frame)
+capturar_paso(app, "resultados_desafiliados_mayo_2023", paso_excel=4)
+texto_grilla = frame.locator("tbody").inner_text()
+assert "No hay datos" not in texto_grilla, f"Se esperaban resultados de afiliados desafiliados en el rango: {texto_grilla!r}"
+assert "DESAFILIADO" in texto_grilla, f"Se esperaba que los resultados muestren estado Desafiliado: {texto_grilla!r}"
+''')
+
+
 # El input[type=date] nativo RECHAZA fill() con una fecha invalida
 # como "2026-02-31" (Playwright lanza "Malformed value" antes de
 # siquiera tocar la app) - hay que usar click()+press_sequentially()
