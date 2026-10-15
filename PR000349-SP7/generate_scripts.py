@@ -1357,27 +1357,57 @@ assert "1 archivo" in texto_pantalla, f"Se esperaba el contador en 1 archivo: {t
 ''')
 
 
-# CP025 ("Transferir un archivo seleccionado") BLOQUEADO 14/10/2026 -
-# ver nota completa debajo de CP024. Codigo ya escrito y probado UNA
-# vez (fallo con el error real de infraestructura, no por un bug del
-# script) - dejar comentado como plantilla lista para cuando
-# Infraestructura habilite el destino real, en vez de reescribirlo de
-# cero:
-# add("CP025", "app, frame = abrir_traslado(page, paso_excel=2)", '''
-# import tempfile
-# tmp_dir = Path(tempfile.mkdtemp(prefix="cp025_"))
-# archivo1 = tmp_dir / "CLIENTE_ENCARGO_QA_CP025.txt"
-# archivo1.write_text("Archivo de prueba QA - CP025", encoding="utf-8")
-# frame.locator("input[type=\\'file\\']").set_input_files([str(archivo1)])
-# app.wait_for_timeout(1200)
-# ir_al_tope(frame)
-# capturar_paso(app, "archivo_listo_para_transferir", paso_excel=3)
-# frame.get_by_role("button", name=re.compile(r"Transferir", re.I)).click()
-# app.wait_for_timeout(2500)
-# mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_transferido", paso_excel=4, timeout_ms=8000)
-# assert "transfir" in mensaje.lower(), f"Se esperaba confirmacion de transferencia: {mensaje!r}"
-# assert "1" in mensaje, f"Se esperaba que el mensaje mencione 1 archivo: {mensaje!r}"
-# ''')
+# DEFECTO REAL CONFIRMADO 15/10/2026 (RF-04, destino FTP): se
+# reinvestigo a pedido del usuario con archivos REALES (no dummy de
+# tempfile) de C:\\Users\\dcaba_dw\\Documents\\docs\\ para descartar
+# que el problema fuera el archivo de prueba. Confirmado que el
+# filtro de extension SI funciona bien (.pdf devuelve HTTP 400 claro:
+# "extension no permitida, validas: .txt, .dat"), pero con un .txt con
+# CONTENIDO REAL (no vacio) el servidor FTP de destino SIEMPRE
+# rechaza con el mismo error, sin importar el archivo:
+# {"statusCode":500,"mensaje":"Error al procesar la solicitud.",
+# "detalle":"The remote server returned an error: (553) File name not
+# allowed."} - probado con 2 archivos .txt distintos (contenido y
+# nombre), mismo resultado exacto. Es un defecto real de
+# infraestructura del destino FTP, no de datos/nombre de archivo. El
+# CP queda escrito con el resultado esperado ORIGINAL (FALLIDO,
+# documentando el defecto).
+add("CP025", "app, frame = abrir_traslado(page, paso_excel=2)", '''
+import tempfile
+tmp_dir = Path(tempfile.mkdtemp(prefix="cp025_"))
+archivo1 = tmp_dir / "CLIENTE_ENCARGO_QA_CP025.txt"
+archivo1.write_text("Archivo de prueba QA - CP025", encoding="utf-8")
+frame.locator("input[type=\\'file\\']").set_input_files([str(archivo1)])
+app.wait_for_timeout(1200)
+ir_al_tope(frame)
+capturar_paso(app, "archivo_listo_para_transferir", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Transferir", re.I)).click()
+app.wait_for_timeout(2500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_transferido", paso_excel=4, timeout_ms=8000)
+assert "transfir" in mensaje.lower(), f"DEFECTO REAL: se esperaba confirmacion de transferencia, pero el sistema devuelve: {mensaje!r}"
+assert "1" in mensaje, f"Se esperaba que el mensaje mencione 1 archivo: {mensaje!r}"
+''')
+
+
+# MISMO DEFECTO que CP025 (ver nota arriba) - confirmado con 2
+# archivos a la vez.
+add("CP026", "app, frame = abrir_traslado(page, paso_excel=2)", '''
+import tempfile
+tmp_dir = Path(tempfile.mkdtemp(prefix="cp026_"))
+archivo1 = tmp_dir / "CLIENTE_ENCARGO_QA_CP026_A.txt"
+archivo1.write_text("Archivo de prueba QA - CP026 A", encoding="utf-8")
+archivo2 = tmp_dir / "CLIENTE_ENCARGO_QA_CP026_B.txt"
+archivo2.write_text("Archivo de prueba QA - CP026 B", encoding="utf-8")
+frame.locator("input[type=\\'file\\']").set_input_files([str(archivo1), str(archivo2)])
+app.wait_for_timeout(1200)
+ir_al_tope(frame)
+capturar_paso(app, "archivos_listos_para_transferir", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Transferir", re.I)).click()
+app.wait_for_timeout(2500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_transferido", paso_excel=4, timeout_ms=8000)
+assert "transfir" in mensaje.lower(), f"DEFECTO REAL (mismo que CP025): se esperaba confirmacion de transferencia, pero el sistema devuelve: {mensaje!r}"
+assert "2" in mensaje, f"Se esperaba que el mensaje mencione 2 archivos: {mensaje!r}"
+''')
 
 
 # BLOQUEADO 14/10/2026 (ver memoria del proyecto): el ambiente actual
