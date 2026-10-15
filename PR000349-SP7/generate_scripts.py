@@ -1600,6 +1600,28 @@ capturar_paso(app, "archivo_exportado", paso_excel=4)
 ''')
 
 
+add("CP035", "app, frame = abrir_encargos_cobranza(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(300)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+frame.locator("#numeroCliente").fill("926226")
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(2500)
+capturar_paso(app, "filtros_con_resultados", paso_excel=3)
+frame.locator("button", has_text="Nuevo").click()
+app.wait_for_timeout(1000)
+ir_al_tope(frame)
+capturar_paso(app, "filtros_limpios", paso_excel=4)
+assert frame.locator("#numeroCliente").input_value().strip() == "", "N. de Cliente deberia quedar vacio"
+boton_exportar = frame.get_by_role("button", name=re.compile(r"Exportar", re.I))
+assert not boton_exportar.is_enabled(), "Exportar a Excel deberia quedar deshabilitado tras Nuevo"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
