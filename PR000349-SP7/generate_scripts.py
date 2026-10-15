@@ -1641,6 +1641,37 @@ assert "2000-10" in texto_grilla, f"Se esperaba ver la promocion 2000-10: {texto
 ''')
 
 
+# DEFECTO REAL CONFIRMADO 14/10/2026: RegistrarPromocion devuelve
+# SIEMPRE HTTP 500 vacio ({"statusCode":500,"mensaje":"Error al
+# registrar la promocion.","detalle":""}), probado con 2 combinaciones
+# de Mes/Ano/fechas distintas (Marzo/2027 y Julio/2027), sin ningun
+# detalle de causa. No es un problema de datos de prueba - el
+# formulario se completa y confirma correctamente, el fallo es del
+# backend. Este CP se deja ESCRITO CON EL RESULTADO ESPERADO ORIGINAL
+# (que una promocion valida SI se registra) para que la corrida
+# documente el defecto real en vez de ocultarlo validando el error
+# como si fuera el comportamiento correcto.
+add("CP037", "app, frame = abrir_promocion(page, paso_excel=2)", '''
+frame.locator("button", has_text="Ingresar").click()
+app.wait_for_timeout(800)
+combo = frame.locator(".ant-select-selector")
+combo.first.click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Marzo").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2027")
+inputs.nth(2).fill("PROMO VERANO 2027")
+inputs.nth(3).fill("2027-02-15")
+inputs.nth(4).fill("2027-03-31")
+capturar_paso(app, "datos_completos", paso_excel=3)
+frame.locator("button", has_text="Aceptar").click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "resultado_registro", paso_excel=4, timeout_ms=5000)
+assert "registrada correctamente" in mensaje.lower(), f"DEFECTO REAL: se esperaba que la promocion se registrara correctamente, pero el sistema devuelve: {mensaje!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
