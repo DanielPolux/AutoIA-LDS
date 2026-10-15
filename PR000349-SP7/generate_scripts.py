@@ -1830,6 +1830,31 @@ assert "Total General" in texto_grilla, f"Se esperaba la fila Total General: {te
 ''')
 
 
+# input[type=date] nativo rechaza "31/02/2026" solo (igual gotcha que
+# CP033 de RF-05) - usar click()+press_sequentially(), no fill().
+add("CP049", "app, frame = abrir_resumen_afiliacion(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+desde = inputs.nth(1)
+desde.click()
+desde.press_sequentially("02312026")
+desde.blur()
+app.wait_for_timeout(500)
+capturar_paso(app, "fecha_formato_incorrecto", paso_excel=3)
+valor_desde = desde.input_value()
+assert valor_desde.strip() == "", f"El campo Proceso Desde deberia quedar vacio tras una fecha invalida: {valor_desde!r}"
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_rango_requerido", paso_excel=4, timeout_ms=5000)
+assert "debe ingresar el rango de fechas" in mensaje.lower(), f"Se esperaba el mensaje de rango requerido: {mensaje!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
