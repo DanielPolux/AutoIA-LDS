@@ -1946,6 +1946,36 @@ capturar_paso(app, "archivo_exportado", paso_excel=4)
 ''')
 
 
+# Mismo rango de CP048. Confirmado en vivo: Nuevo borra SOLO las
+# fechas - el Encargo seleccionado PERMANECE en pantalla (distinto de
+# Cerrar, que limpia todo).
+add("CP053", "app, frame = abrir_resumen_afiliacion(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2001-01-01")
+inputs.nth(2).fill("2001-06-30")
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(3000)
+capturar_paso(app, "resumen_con_filtros", paso_excel=3)
+frame.locator("button", has_text="Nuevo").click()
+app.wait_for_timeout(1000)
+ir_al_tope(frame)
+capturar_paso(app, "filtros_limpios_encargo_permanece", paso_excel=4)
+combo_texto = frame.locator(".ant-select-selector").first.inner_text()
+assert "PLUZ PROTECCION" in combo_texto, f"El Encargo deberia permanecer seleccionado tras Nuevo: {combo_texto!r}"
+inputs_final = frame.locator("input:visible")
+assert inputs_final.nth(1).input_value().strip() == "", "Proceso Desde deberia quedar vacio"
+assert inputs_final.nth(2).input_value().strip() == "", "Proceso Hasta deberia quedar vacio"
+boton_exportar = frame.get_by_role("button", name=re.compile(r"Exportar", re.I))
+assert not boton_exportar.is_enabled(), "Exportar a Excel deberia quedar deshabilitado tras Nuevo"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
