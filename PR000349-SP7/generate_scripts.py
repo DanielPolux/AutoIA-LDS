@@ -1622,6 +1622,25 @@ assert not boton_exportar.is_enabled(), "Exportar a Excel deberia quedar deshabi
 ''')
 
 
+# ============================================================================
+# RF-06 Promocion de Afiliados (app-promocion). Ant-design. Mes es el
+# unico combo (.ant-select-selector, 1 solo). Campos sin name/id
+# directo (posicion): Ano (number), Descripcion (text), Fecha de
+# Activacion/Desactivacion (date). Grilla "Promociones Registradas" ya
+# tiene 1 fila real (200010 / Octubre-00), sin necesitar SQL para
+# CP036.
+# ============================================================================
+
+add("CP036", "app, frame = abrir_promocion(page, paso_excel=2)", '''
+ir_al_tope(frame)
+capturar_paso(app, "grilla_promociones", paso_excel=3)
+filas = filas_tabla(frame)
+assert filas.count() > 0, "Se esperaba al menos 1 promocion registrada en la grilla"
+texto_grilla = frame.locator("tbody").inner_text()
+assert "2000-10" in texto_grilla, f"Se esperaba ver la promocion 2000-10: {texto_grilla!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
