@@ -1699,6 +1699,31 @@ assert "ya existe una promoci" in mensaje.lower() and "a\\u00f1o-mes" in mensaje
 ''')
 
 
+# A diferencia de CP037/CP038, esta validacion es del lado del
+# CLIENTE (se dispara antes de llamar al backend roto) - confirmado en
+# vivo que SI funciona correctamente pese al defecto de
+# RegistrarPromocion.
+add("CP039", "app, frame = abrir_promocion(page, paso_excel=2)", '''
+frame.locator("button", has_text="Ingresar").click()
+app.wait_for_timeout(800)
+combo = frame.locator(".ant-select-selector")
+combo.first.click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Mayo").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2027")
+inputs.nth(2).fill("PROMO FECHAS INVALIDAS")
+inputs.nth(3).fill("2027-03-31")
+inputs.nth(4).fill("2027-02-15")
+capturar_paso(app, "fechas_invertidas", paso_excel=3)
+frame.locator("button", has_text="Aceptar").click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_fechas_invalidas", paso_excel=4, timeout_ms=5000)
+assert "fecha de desactivaci" in mensaje.lower() and "mayor a la fecha de activaci" in mensaje.lower(), f"Se esperaba el rechazo por fechas inconsistentes: {mensaje!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
