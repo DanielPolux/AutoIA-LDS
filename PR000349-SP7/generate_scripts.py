@@ -1575,6 +1575,31 @@ assert valor_final.strip() == "", f"El campo Desafiliados Desde deberia quedar l
 ''')
 
 
+# Reusa la busqueda de CP028 (cliente 926226, con resultados reales
+# confirmados). Archivo real descargado: afiliados_venta_lisafi.xlsx.
+add("CP034", "app, frame = abrir_encargos_cobranza(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(300)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+frame.locator("#numeroCliente").fill("926226")
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(2500)
+ir_al_tope(frame)
+capturar_paso(app, "resultados_para_exportar", paso_excel=3)
+boton_exportar = frame.get_by_role("button", name=re.compile(r"Exportar", re.I))
+assert boton_exportar.is_enabled(), "El boton Exportar a Excel deberia estar habilitado con resultados"
+with app.expect_download(timeout=15000) as descarga_info:
+    boton_exportar.click()
+descarga = descarga_info.value
+assert descarga.suggested_filename.lower().endswith(".xlsx"), f"Se esperaba un archivo .xlsx descargado: {descarga.suggested_filename!r}"
+capturar_paso(app, "archivo_exportado", paso_excel=4)
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
