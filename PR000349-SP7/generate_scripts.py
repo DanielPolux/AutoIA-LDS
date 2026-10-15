@@ -1800,6 +1800,36 @@ assert valor_final.strip() == "", f"El campo Rol Personal deberia quedar limpio:
 ''')
 
 
+# ============================================================================
+# RF-08 Resumen de Afiliacion (app-resumen-afiliacion). Ant-design,
+# PERO a diferencia de RF-07, los campos de rango de fechas (Proceso
+# Desde/Hasta) SI son input[type=date] NATIVOS (confirmado en vivo) -
+# fill() funciona normal, sin el defecto de nz-date-picker de RF-07.
+# Combo Encargo (unico) muestra SOLO el nombre, sin codigo (igual que
+# RF-05).
+# ============================================================================
+
+add("CP048", "app, frame = abrir_resumen_afiliacion(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2001-01-01")
+inputs.nth(2).fill("2001-06-30")
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(3000)
+ir_al_tope(frame)
+capturar_paso(app, "resumen_por_rango", paso_excel=3)
+texto_grilla = frame.locator("tbody").inner_text()
+for mes in ["Enero 2001", "Febrero 2001", "Marzo 2001", "Abril 2001", "Mayo 2001", "Junio 2001"]:
+    assert mes in texto_grilla, f"Se esperaba ver {mes} en el resumen: {texto_grilla!r}"
+assert "Total General" in texto_grilla, f"Se esperaba la fila Total General: {texto_grilla!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
