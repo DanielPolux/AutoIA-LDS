@@ -1541,6 +1541,40 @@ assert valor_final.strip() == "", f"El campo Rol deberia quedar limpio: {valor_f
 ''')
 
 
+# El input[type=date] nativo RECHAZA fill() con una fecha invalida
+# como "2026-02-31" (Playwright lanza "Malformed value" antes de
+# siquiera tocar la app) - hay que usar click()+press_sequentially()
+# tecleando los digitos en el orden que muestra el placeholder
+# dd/mm/aaaa (31 02 2026), igual que el gotcha ya documentado de
+# inputs de fecha nativos en otros proyectos.
+add("CP033", "app, frame = abrir_encargos_cobranza(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(300)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+combos = frame.locator(".ant-select-selector")
+combos.nth(2).click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Desafiliado").first.click()
+app.wait_for_timeout(500)
+desaf_desde = frame.locator("#desafDesde")
+desaf_desde.click()
+desaf_desde.press_sequentially("31022026")
+app.wait_for_timeout(500)
+desaf_desde.blur()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_fecha_invalida", paso_excel=3, timeout_ms=5000)
+assert "desafiliados desde" in mensaje.lower(), f"Se esperaba que el mensaje mencione el campo: {mensaje!r}"
+assert "no es una fecha calendario" in mensaje.lower(), f"Se esperaba el mensaje de fecha invalida: {mensaje!r}"
+app.wait_for_timeout(500)
+valor_final = desaf_desde.input_value()
+assert valor_final.strip() == "", f"El campo Desafiliados Desde deberia quedar limpio: {valor_final!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
