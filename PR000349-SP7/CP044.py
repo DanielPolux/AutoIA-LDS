@@ -644,6 +644,48 @@ def ir_al_tope(frame):
     campo puntual NO alcanza si el scroll necesario es grande)."""
     frame.locator("body").evaluate("el => el.scrollTo(0, 0)")
 
+
+MESES_ABREV_NZ = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+
+
+def seleccionar_fecha_calendario(app, frame, input_locator, dia, mes, anio):
+    """Selecciona una fecha en un nz-date-picker (ant-design) haciendo
+    CLIC en el calendario (año -> mes -> día), NUNCA tipeando el
+    texto. CONFIRMADO EN VIVO 15/10/2026 (RF-07/CP042): tipear con
+    fill()/press_sequentially() deja el campo "Hasta" vacío al perder
+    el foco (el DOM se actualiza visualmente pero el FormControl de
+    Angular no se entera), mientras que clickear la celda real del
+    calendario SÍ actualiza el control y el valor persiste - no es un
+    defecto de la app, es que el picker solo escucha sus propios
+    eventos de selección, no el tecleo simulado. Patrón reusable para
+    cualquier nz-date-picker de Web LDS con el mismo síntoma."""
+    input_locator.click()
+    app.wait_for_timeout(400)
+    frame.locator(".ant-picker-header-year-btn").last.click()
+    app.wait_for_timeout(400)
+    for _ in range(25):
+        celda_anio = frame.locator(f'.ant-picker-cell[title="{anio}"]').last
+        if celda_anio.count():
+            celda_anio.click()
+            break
+        primero = int(frame.locator(".ant-picker-cell").first.get_attribute("title"))
+        if primero > anio:
+            frame.locator(".ant-picker-header-super-prev-btn").last.click()
+        else:
+            frame.locator(".ant-picker-header-super-next-btn").last.click()
+        app.wait_for_timeout(300)
+    else:
+        raise RuntimeError(f"No se encontro el anio {anio} en el selector tras 25 saltos de decada")
+    app.wait_for_timeout(400)
+    frame.locator(".ant-picker-header-month-btn").last.click()
+    app.wait_for_timeout(400)
+    abrev = MESES_ABREV_NZ[mes - 1]
+    frame.locator(f'.ant-picker-cell[title="{abrev}"]').last.click()
+    app.wait_for_timeout(400)
+    objetivo = f"{dia:02d}/{mes:02d}/{anio}"
+    frame.locator(f'.ant-picker-cell[title="{objetivo}"]').last.click()
+    app.wait_for_timeout(300)
+
 _EMU_POR_PULGADA = 914400
 _ANCHO_MAX_PULGADAS = 6.3
 

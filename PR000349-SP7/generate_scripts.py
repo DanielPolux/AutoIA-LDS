@@ -291,6 +291,48 @@ def ir_al_tope(frame):
     campo puntual NO alcanza si el scroll necesario es grande)."""
     frame.locator("body").evaluate("el => el.scrollTo(0, 0)")
 
+
+MESES_ABREV_NZ = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+
+
+def seleccionar_fecha_calendario(app, frame, input_locator, dia, mes, anio):
+    """Selecciona una fecha en un nz-date-picker (ant-design) haciendo
+    CLIC en el calendario (año -> mes -> día), NUNCA tipeando el
+    texto. CONFIRMADO EN VIVO 15/10/2026 (RF-07/CP042): tipear con
+    fill()/press_sequentially() deja el campo "Hasta" vacío al perder
+    el foco (el DOM se actualiza visualmente pero el FormControl de
+    Angular no se entera), mientras que clickear la celda real del
+    calendario SÍ actualiza el control y el valor persiste - no es un
+    defecto de la app, es que el picker solo escucha sus propios
+    eventos de selección, no el tecleo simulado. Patrón reusable para
+    cualquier nz-date-picker de Web LDS con el mismo síntoma."""
+    input_locator.click()
+    app.wait_for_timeout(400)
+    frame.locator(".ant-picker-header-year-btn").last.click()
+    app.wait_for_timeout(400)
+    for _ in range(25):
+        celda_anio = frame.locator(f'.ant-picker-cell[title="{{anio}}"]').last
+        if celda_anio.count():
+            celda_anio.click()
+            break
+        primero = int(frame.locator(".ant-picker-cell").first.get_attribute("title"))
+        if primero > anio:
+            frame.locator(".ant-picker-header-super-prev-btn").last.click()
+        else:
+            frame.locator(".ant-picker-header-super-next-btn").last.click()
+        app.wait_for_timeout(300)
+    else:
+        raise RuntimeError(f"No se encontro el anio {{anio}} en el selector tras 25 saltos de decada")
+    app.wait_for_timeout(400)
+    frame.locator(".ant-picker-header-month-btn").last.click()
+    app.wait_for_timeout(400)
+    abrev = MESES_ABREV_NZ[mes - 1]
+    frame.locator(f'.ant-picker-cell[title="{{abrev}}"]').last.click()
+    app.wait_for_timeout(400)
+    objetivo = f"{{dia:02d}}/{{mes:02d}}/{{anio}}"
+    frame.locator(f'.ant-picker-cell[title="{{objetivo}}"]').last.click()
+    app.wait_for_timeout(300)
+
 %%WORD_HELPERS%%
 
 
@@ -1832,17 +1874,15 @@ assert "fecha de desactivaci" in mensaje.lower() and "mayor a la fecha de activa
 # (ej. "0002 - PLUZ PROTECCION", a diferencia de RF-05). Checkboxes
 # "Afiliados Desde" (marcado por defecto) y "Pagos Desde" (desmarcado)
 # habilitan sus respectivos pares de fecha. Los campos de fecha son
-# nz-date-picker (NO input nativo) - fill() no dispara los eventos que
-# Angular necesita: el valor se pierde al perder foco. Hay que usar
-# click() + press_sequentially("dd/mm/aaaa") igual que en otros
-# proyectos con nz-date-picker.
-#
-# DEFECTO REAL CONFIRMADO 14/10/2026: el campo "Hasta" de Afiliados
-# SIEMPRE se borra solo al perder el foco, sin importar el metodo
-# (fill, press_sequentially) ni el orden de llenado (antes o despues
-# de "Desde") - probado exhaustivamente. "Desde" SI retiene su valor
-# correctamente una vez tecleado con press_sequentially. Bloquea
-# CP042/043/045/046/047 (todos necesitan el rango completo).
+# nz-date-picker (NO input nativo) - fill()/press_sequentially()
+# actualizan el DOM visualmente pero NO el FormControl de Angular: el
+# campo "Hasta" queda vacio al perder el foco. NO es un defecto de la
+# app (descartado en vivo 15/10/2026 tras que el usuario confirmara
+# que buscando a mano SI encuentra data con un rango completo) - hay
+# que seleccionar la fecha haciendo CLIC en el calendario real (año ->
+# mes -> dia), nunca tipeando. Usar el helper
+# seleccionar_fecha_calendario(app, frame, input_locator, dia, mes,
+# anio) para los 2 pares de fecha de esta pantalla (Afiliados y Pagos).
 # ============================================================================
 
 add("CP042", "app, frame = abrir_afiliacion_especial(page, paso_excel=2)", '''
@@ -1855,25 +1895,22 @@ app.wait_for_timeout(500)
 inputs = frame.locator("input:visible")
 desde = inputs.nth(4)
 hasta = inputs.nth(5)
-desde.click()
-desde.press_sequentially("01/01/2000")
+seleccionar_fecha_calendario(app, frame, desde, 1, 1, 2000)
+seleccionar_fecha_calendario(app, frame, hasta, 1, 10, 2026)
 frame.locator("body").click()
 app.wait_for_timeout(500)
-hasta.click()
-hasta.press_sequentially("01/10/2026")
-frame.locator("body").click()
-app.wait_for_timeout(800)
+valor_desde, valor_hasta = desde.input_value(), hasta.input_value()
+assert valor_desde.strip() != "", f"El campo Afiliados Desde deberia conservar la fecha seleccionada: {valor_desde!r}"
+assert valor_hasta.strip() != "", f"El campo Afiliados Hasta deberia conservar la fecha seleccionada: {valor_hasta!r}"
 capturar_paso(app, "rango_de_fechas_completado", paso_excel=3)
-valor_hasta = hasta.input_value()
-assert valor_hasta.strip() != "", f"DEFECTO REAL: el campo Hasta de Afiliados pierde su valor al perder el foco, no se puede completar un rango de fechas (valor actual: {valor_hasta!r})"
 frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
-app.wait_for_timeout(3000)
+app.wait_for_timeout(15000)
 texto_grilla = frame.locator("tbody").inner_text()
 assert "No hay datos" not in texto_grilla, f"Se esperaban resultados de afiliaciones de nivel especial: {texto_grilla!r}"
 ''')
 
 
-# No depende del defecto de fechas (CP042) - se desmarca "Afiliados
+# No depende del rango de fechas de CP042 - se desmarca "Afiliados
 # Desde" para no necesitar completar fechas, la validacion de Rol
 # Personal se dispara al presionar Buscar (no al blur, a diferencia de
 # RF-05/CP031).
@@ -1899,6 +1936,152 @@ assert "no existe" in mensaje.lower(), f"Se esperaba el aviso de rol inexistente
 app.wait_for_timeout(500)
 valor_final = rol.input_value()
 assert valor_final.strip() == "", f"El campo Rol Personal deberia quedar limpio: {valor_final!r}"
+''')
+
+
+# Confirmado en vivo 15/10/2026: filtrando por Rol Personal MIGP (72
+# afiliaciones reales de ese promotor en el Encargo 0002) la grilla
+# muestra SOLO filas de "MARIA ISABEL GOMEZ PARRAGA" (columna
+# Promotor) - a diferencia de CP042 (sin filtro de rol), que mezcla
+# varios promotores distintos.
+add("CP043", "app, frame = abrir_afiliacion_especial(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="0002").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+rol = inputs.nth(2)
+rol.fill("MIGP")
+desde, hasta = inputs.nth(4), inputs.nth(5)
+seleccionar_fecha_calendario(app, frame, desde, 1, 1, 2000)
+seleccionar_fecha_calendario(app, frame, hasta, 1, 10, 2026)
+frame.locator("body").click()
+app.wait_for_timeout(500)
+capturar_paso(app, "filtro_rol_migp", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(15000)
+texto_grilla = frame.locator("tbody").inner_text()
+assert "No hay datos" not in texto_grilla, f"Se esperaban resultados del promotor MIGP: {texto_grilla!r}"
+filas = [l for l in texto_grilla.splitlines() if l.strip() and "\\t" in l]
+assert filas, f"No se pudo leer ninguna fila de la grilla: {texto_grilla!r}"
+for fila in filas:
+    assert "GOMEZ P" in fila.upper(), f"Se esperaba que TODAS las filas sean del promotor de rol MIGP: {fila!r}"
+''')
+
+
+# Columnas confirmadas en vivo (thead): Cliente/Nombre/Promotor/Fecha
+# Afiliacion/Fecha Pago - el filtro de Pagos Desde/Hasta actua sobre
+# la ULTIMA columna (Fecha Pago), no sobre Fecha Afiliacion.
+add("CP045", "app, frame = abrir_afiliacion_especial(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="0002").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+desde, hasta = inputs.nth(4), inputs.nth(5)
+seleccionar_fecha_calendario(app, frame, desde, 1, 1, 2000)
+seleccionar_fecha_calendario(app, frame, hasta, 1, 10, 2026)
+checkbox_pagos = inputs.nth(6)
+if not checkbox_pagos.is_checked():
+    checkbox_pagos.check(force=True)
+app.wait_for_timeout(500)
+inputs2 = frame.locator("input:visible")
+pagos_desde, pagos_hasta = inputs2.nth(7), inputs2.nth(8)
+seleccionar_fecha_calendario(app, frame, pagos_desde, 1, 1, 2001)
+seleccionar_fecha_calendario(app, frame, pagos_hasta, 31, 12, 2001)
+frame.locator("body").click()
+app.wait_for_timeout(500)
+capturar_paso(app, "filtro_rango_de_pagos", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(15000)
+texto_grilla = frame.locator("tbody").inner_text()
+assert "No hay datos" not in texto_grilla, f"Se esperaban resultados con pago dentro del rango 2001: {texto_grilla!r}"
+filas = [l for l in texto_grilla.splitlines() if l.strip() and "\\t" in l]
+assert filas, f"No se pudo leer ninguna fila de la grilla: {texto_grilla!r}"
+for fila in filas:
+    fecha_pago = fila.split("\\t")[-1].strip()
+    assert fecha_pago.endswith("/2001"), f"Se esperaba que la Fecha de Pago de cada fila caiga en 2001: {fila!r}"
+''')
+
+
+# Confirmado en vivo: tras Buscar, los botones (pagination +
+# Exportar) demoran ~30s en habilitarse del todo (la grilla YA
+# muestra datos a los 15s, pero Exportar sigue disabled un rato mas) -
+# por eso esta espera es mas larga que la de los demas CP de RF-07.
+# El download real se dispara en la pagina POPUP ("app"), no en
+# "page" - expect_download() hay que anclarlo ahi.
+add("CP046", "app, frame = abrir_afiliacion_especial(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="0002").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+desde, hasta = inputs.nth(4), inputs.nth(5)
+seleccionar_fecha_calendario(app, frame, desde, 1, 1, 2000)
+seleccionar_fecha_calendario(app, frame, hasta, 1, 10, 2026)
+frame.locator("body").click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(30000)
+capturar_paso(app, "resultados_antes_de_exportar", paso_excel=3)
+with app.expect_download(timeout=20000) as descarga_info:
+    frame.get_by_role("button", name=re.compile(r"Exportar", re.I)).click()
+descarga = descarga_info.value
+assert descarga.suggested_filename == "AfiliacionesPromotorEspecial.xlsx", f"Nombre de archivo inesperado: {descarga.suggested_filename!r}"
+capturar_paso(app, "archivo_exportado", paso_excel=4)
+''')
+
+
+# Confirmado en vivo: tras una busqueda, el boton "Buscar" se
+# RE-ROTULA a "Nuevo" (mismo boton, no uno nuevo). Clickearlo limpia
+# Rol Personal y AMBOS pares de fecha, deja "Afiliados Desde" marcado
+# (igual que el estado inicial de la pantalla) y "Pagos Desde"
+# desmarcado, y vuelve a deshabilitar "Exportar a Excel".
+add("CP047", "app, frame = abrir_afiliacion_especial(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="0002").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+rol = inputs.nth(2)
+rol.fill("MIGP")
+desde, hasta = inputs.nth(4), inputs.nth(5)
+seleccionar_fecha_calendario(app, frame, desde, 1, 1, 2000)
+seleccionar_fecha_calendario(app, frame, hasta, 1, 10, 2026)
+checkbox_pagos = inputs.nth(6)
+if not checkbox_pagos.is_checked():
+    checkbox_pagos.check(force=True)
+app.wait_for_timeout(500)
+inputs2 = frame.locator("input:visible")
+pagos_desde, pagos_hasta = inputs2.nth(7), inputs2.nth(8)
+seleccionar_fecha_calendario(app, frame, pagos_desde, 1, 1, 2001)
+seleccionar_fecha_calendario(app, frame, pagos_hasta, 31, 12, 2001)
+frame.locator("body").click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(15000)
+capturar_paso(app, "filtros_antes_de_limpiar", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Nuevo", re.I)).click()
+app.wait_for_timeout(1000)
+inputs3 = frame.locator("input:visible")
+assert inputs3.nth(2).input_value().strip() == "", "El Rol Personal deberia quedar vacio tras Nuevo"
+assert inputs3.nth(3).is_checked(), "Afiliados Desde deberia quedar marcado tras Nuevo"
+assert inputs3.nth(4).input_value().strip() == "", "Afiliados Desde (fecha) deberia quedar vacia tras Nuevo"
+assert inputs3.nth(5).input_value().strip() == "", "Afiliados Hasta (fecha) deberia quedar vacia tras Nuevo"
+assert not inputs3.nth(6).is_checked(), "Pagos Desde deberia quedar DESmarcado tras Nuevo"
+assert inputs3.nth(7).input_value().strip() == "", "Pagos Desde (fecha) deberia quedar vacia tras Nuevo"
+assert inputs3.nth(8).input_value().strip() == "", "Pagos Hasta (fecha) deberia quedar vacia tras Nuevo"
+boton_exportar = frame.get_by_role("button", name=re.compile(r"Exportar", re.I))
+assert boton_exportar.is_disabled(), "El boton Exportar a Excel deberia quedar deshabilitado tras Nuevo"
+capturar_paso(app, "filtros_limpios", paso_excel=4)
 ''')
 
 

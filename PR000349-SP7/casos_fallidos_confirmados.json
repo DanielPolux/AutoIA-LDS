@@ -1,27 +1,12 @@
 {
   "CP037": {
-    "motivo": "RegistrarPromocion devuelve siempre HTTP 500 vacio ({\"statusCode\":500,\"mensaje\":\"Error al registrar la promocion.\",\"detalle\":\"\"}), probado con 2 combinaciones de datos distintas (Marzo/2027 y Julio/2027). No es un problema de datos de prueba: el formulario se completa y confirma correctamente, el fallo es del backend.",
+    "motivo": "RegistrarPromocion devuelve siempre HTTP 500 vacio ({\"statusCode\":500,\"mensaje\":\"Error al registrar la promocion.\",\"detalle\":\"\"}), probado con 2 combinaciones de datos distintas (Marzo/2027 y Julio/2027). No es un problema de datos de prueba: el formulario se completa y confirma correctamente, el fallo es del backend. BLOQUEA a CP038 (rechazo de ano-mes duplicado), CP040 (modificar) y CP041 (eliminar) - ninguno de los 3 se puede probar sin poder registrar una promocion real primero.",
     "fecha_verificacion": "2026-10-14",
     "evidencia": "CP037.py / CP037/CP037_04_resultado_registro.png"
   },
-  "CP038": {
-    "motivo": "Mismo defecto que CP037: probado con un ano-mes REALMENTE duplicado (202703/Marzo-27 sembrado por SQL), el sistema devuelve el mismo error generico de registro en vez del rechazo especifico por ano-mes duplicado - confirma que RegistrarPromocion esta roto para CUALQUIER intento de registro, no solo para la validacion de duplicados.",
-    "fecha_verificacion": "2026-10-14",
-    "evidencia": "CP038.py / CP038/CP038_04_mensaje_rechazo.png"
-  },
-  "CP042": {
-    "motivo": "El campo \"Hasta\" de CUALQUIER rango de fechas en RF-07 (Afiliados Hasta y Pagos Hasta, ambos confirmados) se borra solo al perder el foco, probado exhaustivamente con fill(), press_sequentially() y en ambos ordenes de llenado - imposible completar un rango de fechas. El campo \"Desde\" si retiene su valor correctamente.",
-    "fecha_verificacion": "2026-10-14",
-    "evidencia": "CP042.py / CP042/CP042_03_rango_de_fechas_completado.png"
-  },
   "CP025": {
-    "motivo": "El servidor FTP de destino rechaza CUALQUIER archivo con contenido real al transferir: HTTP 500, 'The remote server returned an error: (553) File name not allowed.' Reinvestigado con archivos reales (no dummy) de C:\\Users\\dcaba_dw\\Documents\\docs\\ para descartar que fuera el archivo de prueba - el filtro de extension SI funciona bien (.pdf da HTTP 400 claro), pero un .txt con contenido real siempre es rechazado por el FTP, probado con 3 archivos .txt distintos (contenido y nombre), mismo resultado exacto. Defecto real de infraestructura del destino FTP, no de datos.",
+    "motivo": "El servidor FTP de destino rechaza CUALQUIER archivo con contenido real al transferir: HTTP 500, 'The remote server returned an error: (553) File name not allowed.' Reinvestigado con archivos reales (no dummy) de C:\\Users\\dcaba_dw\\Documents\\docs\\ para descartar que fuera el archivo de prueba - el filtro de extension SI funciona bien (.pdf da HTTP 400 claro), pero un .txt con contenido real siempre es rechazado por el FTP, probado con 3 archivos .txt distintos (contenido y nombre), mismo resultado exacto. Defecto real de infraestructura del destino FTP, no de datos. BLOQUEA a CP026 (mismo flujo con 2 archivos a la vez).",
     "fecha_verificacion": "2026-10-15",
     "evidencia": "CP025.py / CP025/CP025_04_mensaje_transferido.png"
-  },
-  "CP026": {
-    "motivo": "Mismo defecto que CP025, confirmado con 2 archivos a la vez.",
-    "fecha_verificacion": "2026-10-15",
-    "evidencia": "CP026.py / CP026/CP026_04_mensaje_transferido.png"
   }
 }
