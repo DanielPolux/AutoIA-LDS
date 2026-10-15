@@ -1771,6 +1771,35 @@ assert "No hay datos" not in texto_grilla, f"Se esperaban resultados de afiliaci
 ''')
 
 
+# No depende del defecto de fechas (CP042) - se desmarca "Afiliados
+# Desde" para no necesitar completar fechas, la validacion de Rol
+# Personal se dispara al presionar Buscar (no al blur, a diferencia de
+# RF-05/CP031).
+add("CP044", "app, frame = abrir_afiliacion_especial(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="0002").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+rol = inputs.nth(2)
+rol.fill("ZZQA9")
+checkbox_afiliados = inputs.nth(3)
+if checkbox_afiliados.is_checked():
+    checkbox_afiliados.uncheck(force=True)
+app.wait_for_timeout(500)
+capturar_paso(app, "rol_inexistente", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(2000)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_rol_inexistente", paso_excel=4, timeout_ms=5000)
+assert "no existe" in mensaje.lower(), f"Se esperaba el aviso de rol inexistente: {mensaje!r}"
+app.wait_for_timeout(500)
+valor_final = rol.input_value()
+assert valor_final.strip() == "", f"El campo Rol Personal deberia quedar limpio: {valor_final!r}"
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
