@@ -1921,6 +1921,31 @@ assert any(v > 0 for v in valores_reafiliados), f"Se esperaba al menos un mes co
 ''')
 
 
+# Mismo rango de CP048. Archivo real confirmado: ResumenAfiliacion_0002.xlsx.
+add("CP052", "app, frame = abrir_resumen_afiliacion(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2001-01-01")
+inputs.nth(2).fill("2001-06-30")
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(3000)
+ir_al_tope(frame)
+capturar_paso(app, "resumen_listo_para_exportar", paso_excel=3)
+boton_exportar = frame.get_by_role("button", name=re.compile(r"Exportar", re.I))
+assert boton_exportar.is_enabled(), "El boton Exportar a Excel deberia estar habilitado con un resumen calculado"
+with app.expect_download(timeout=15000) as descarga_info:
+    boton_exportar.click()
+descarga = descarga_info.value
+assert descarga.suggested_filename.lower().endswith(".xlsx"), f"Se esperaba un archivo .xlsx descargado: {descarga.suggested_filename!r}"
+capturar_paso(app, "archivo_exportado", paso_excel=4)
+''')
+
+
 def render_all():
     if not CASES:
         raise SystemExit(
