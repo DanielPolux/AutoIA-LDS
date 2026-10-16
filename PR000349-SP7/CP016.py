@@ -918,6 +918,14 @@ def main():
             texto_grilla = frame.locator("tbody").inner_text()
             for cliente_descartable in ["9900018", "9900019", "9900020", "9900021"]:
                 assert cliente_descartable in texto_grilla, f"Se esperaba ver el cliente {cliente_descartable} en la grilla"
+            boton_sgtes = frame.locator("button", has_text="Sgtes")
+            if boton_sgtes.count() and not boton_sgtes.is_disabled():
+                boton_sgtes.click()
+                app.wait_for_timeout(2500)
+                ir_al_tope(frame)
+                capturar_paso(app, "segunda_pagina_clientes", paso_excel=3)
+                filas_pagina2 = filas_tabla(frame)
+                assert filas_pagina2.count() > 0, "Se esperaba al menos 1 cliente en la segunda pagina del proyecto"
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

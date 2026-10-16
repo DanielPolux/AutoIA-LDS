@@ -909,22 +909,29 @@ def main():
             combos = frame.locator(".ant-select-selector")
             combos.nth(2).click()
             app.wait_for_timeout(600)
-            frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Afiliado").first.click()
+            frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Desafiliado").first.click()
             app.wait_for_timeout(500)
             combos.nth(4).click()
             app.wait_for_timeout(600)
             frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="LDS").first.click()
             app.wait_for_timeout(500)
+            frame.locator("#afiliadosDesde").fill("2000-01-01")
+            frame.locator("#afiliadosHasta").fill("2026-10-15")
+            frame.locator("#desafDesde").fill("2000-01-01")
+            frame.locator("#desafHasta").fill("2026-10-15")
             campo_rol = frame.locator("#rol")
             assert campo_rol.get_attribute("disabled") is None, "El campo Rol deberia habilitarse tras elegir Nivel Especial y Estado"
-            campo_rol.fill("CCQ")
+            campo_rol.fill("SRA")
             capturar_paso(app, "filtro_nivel_especial_rol", paso_excel=3)
             frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
-            app.wait_for_timeout(2500)
-            dialogo_rechazo = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
-            texto_rechazo = dialogo_rechazo.first.inner_text() if dialogo_rechazo.count() else "(ninguno)"
-            assert not dialogo_rechazo.count(), f"El rol CCQ es valido, no deberia rechazarse: {texto_rechazo!r}"
-            capturar_paso(app, "busqueda_aceptada", paso_excel=4)
+            app.wait_for_timeout(3000)
+            texto_grilla = frame.locator("tbody").inner_text()
+            assert "No hay datos" not in texto_grilla, f"Se esperaban resultados reales del rol SRA: {texto_grilla!r}"
+            filas = [l for l in texto_grilla.splitlines() if l.strip() and "\t" in l]
+            assert filas, f"No se pudo leer ninguna fila de la grilla: {texto_grilla!r}"
+            for fila in filas:
+                assert "SRA" in fila, f"Se esperaba que TODAS las filas sean del rol SRA (filtro realmente aplicado): {fila!r}"
+            capturar_paso(app, "filtro_aplicado_resultados", paso_excel=4)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

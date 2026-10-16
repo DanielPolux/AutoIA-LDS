@@ -1073,6 +1073,14 @@ assert filas.count() > 0, "Se esperaba al menos 1 cliente en la primera pagina d
 texto_grilla = frame.locator("tbody").inner_text()
 for cliente_descartable in ["9900018", "9900019", "9900020", "9900021"]:
     assert cliente_descartable in texto_grilla, f"Se esperaba ver el cliente {cliente_descartable} en la grilla"
+boton_sgtes = frame.locator("button", has_text="Sgtes")
+if boton_sgtes.count() and not boton_sgtes.is_disabled():
+    boton_sgtes.click()
+    app.wait_for_timeout(2500)
+    ir_al_tope(frame)
+    capturar_paso(app, "segunda_pagina_clientes", paso_excel=3)
+    filas_pagina2 = filas_tabla(frame)
+    assert filas_pagina2.count() > 0, "Se esperaba al menos 1 cliente en la segunda pagina del proyecto"
 ''')
 
 
@@ -1572,12 +1580,22 @@ if boton_cancelar.count():
 # queda disabled con tooltip "Seleccione un Estado para habilitar este
 # filtro" hasta elegir ambos, Nivel=LDS Y Estado - no alcanza con
 # Nivel solo, contra lo que sugeria la precondicion de la matriz).
-# CCQ es un rol REAL (visto en rol_desafiliac de otros afiliados) pero
-# en este ambiente no cruza con ningun afiliado en estado Afiliado
-# para este encargo (solo DACD tiene 1 afiliado real con rol_afiliacion
-# no vacio) - por eso el objetivo del caso es confirmar que el filtro
-# se ACEPTA sin rechazo (a diferencia de CP031, que prueba un rol
-# inexistente), no que traiga resultados no vacios.
+#
+# CORRECCION 15/10/2026: el rol CCQ de la matriz (y Estado=Afiliado)
+# NUNCA trae resultados en este ambiente - confirmado que Nivel=
+# Especial + Estado=Afiliado da CERO resultados para LOS 4 ENCARGOS
+# reales del combo (PLUZ PROTECCION/SALUD/EMERGENCIA/SEPELIO), incluso
+# SIN filtrar por Rol (respuesta cruda del API: "[]"). El dato de la
+# matriz simplemente no existe en este ambiente para Estado=Afiliado.
+# Probando con Estado=Desafiliado (que SI requiere ademas el rango
+# Desafiliados Desde/Hasta, igual que CP032) aparecen resultados
+# reales para PLUZ PROTECCION y PLUZ SEPELIO - **rol SRA, real y con
+# muchos afiliados desafiliados en PLUZ PROTECCION**, confirmado en
+# vivo filtrando por el y obteniendo SOLO filas con ese rol. CP030
+# reescrito para demostrar el filtro REALMENTE aplicado (no solo
+# "aceptado sin rechazo" como antes), con Estado=Desafiliado y Rol=SRA
+# en vez del CCQ/Afiliado original de la matriz (que no tiene data
+# real en este ambiente).
 add("CP030", "app, frame = abrir_encargos_cobranza(page, paso_excel=2)", '''
 frame.locator(".ant-select-selector").first.click()
 app.wait_for_timeout(800)
@@ -1589,22 +1607,29 @@ app.wait_for_timeout(500)
 combos = frame.locator(".ant-select-selector")
 combos.nth(2).click()
 app.wait_for_timeout(600)
-frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Afiliado").first.click()
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Desafiliado").first.click()
 app.wait_for_timeout(500)
 combos.nth(4).click()
 app.wait_for_timeout(600)
 frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="LDS").first.click()
 app.wait_for_timeout(500)
+frame.locator("#afiliadosDesde").fill("2000-01-01")
+frame.locator("#afiliadosHasta").fill("2026-10-15")
+frame.locator("#desafDesde").fill("2000-01-01")
+frame.locator("#desafHasta").fill("2026-10-15")
 campo_rol = frame.locator("#rol")
 assert campo_rol.get_attribute("disabled") is None, "El campo Rol deberia habilitarse tras elegir Nivel Especial y Estado"
-campo_rol.fill("CCQ")
+campo_rol.fill("SRA")
 capturar_paso(app, "filtro_nivel_especial_rol", paso_excel=3)
 frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
-app.wait_for_timeout(2500)
-dialogo_rechazo = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
-texto_rechazo = dialogo_rechazo.first.inner_text() if dialogo_rechazo.count() else "(ninguno)"
-assert not dialogo_rechazo.count(), f"El rol CCQ es valido, no deberia rechazarse: {texto_rechazo!r}"
-capturar_paso(app, "busqueda_aceptada", paso_excel=4)
+app.wait_for_timeout(3000)
+texto_grilla = frame.locator("tbody").inner_text()
+assert "No hay datos" not in texto_grilla, f"Se esperaban resultados reales del rol SRA: {texto_grilla!r}"
+filas = [l for l in texto_grilla.splitlines() if l.strip() and "\\t" in l]
+assert filas, f"No se pudo leer ninguna fila de la grilla: {texto_grilla!r}"
+for fila in filas:
+    assert "SRA" in fila, f"Se esperaba que TODAS las filas sean del rol SRA (filtro realmente aplicado): {fila!r}"
+capturar_paso(app, "filtro_aplicado_resultados", paso_excel=4)
 ''')
 
 
