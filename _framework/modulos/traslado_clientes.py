@@ -89,6 +89,74 @@ def agregar_cliente_traslado(app, frame, numero):
     app.wait_for_timeout(800)
 
 
+def encontrar_cliente_en_estado(app, frame, semillas, estado_deseado, radio=15):
+    """Escanea en vivo, via la propia API ValidarCliente (solo lectura, NO
+    ejecuta ningun traslado), candidatos alrededor de cada numero de
+    `semillas` (+/- `radio`) y devuelve el primero cuyo estadoCliente real
+    coincida con `estado_deseado` ("2"=Retirado, "6"=Cobranza Externa,
+    "0"=Activo/no elegible).
+
+    CONFIRMADO EN VIVO (PR000349-SP1, 25/09/2026 - PR000349-SP1-IT2,
+    15/10/2026, misma falla reproducida una 3ra vez): cualquier numero de
+    cliente HARDCODEADO en este modulo (o en el cuerpo de un caso) para un
+    escenario "Retirado"/"Cobranza Externa" se "quema" (deja de calificar)
+    la PRIMERA vez que un Traslado real se ejecuta con el - no solo entre
+    sprints distintos semanas despues, sino inclusive DENTRO de la MISMA
+    sesion de pruebas si el caso se corre mas de una vez (confirmado: una
+    corrida de verificacion manual del mismo caso ya deja el numero
+    inservible para la corrida automatica siguiente). Usar esta funcion en
+    vez de un numero fijo en cualquier caso NUEVO que necesite un cliente
+    en un estado puntual - evita tener que re-descubrir manualmente un
+    numero fresco cada vez que se re-corre el proyecto."""
+    campo = frame.locator('input[placeholder="N° Cliente"]')
+    boton_agregar = frame.locator("button", has_text=re.compile(r"^\s*Agregar\s*$"))
+
+    solicitudes = []
+
+    def _on_request(req):
+        if "ValidarCliente" in req.url:
+            solicitudes.append({"method": req.method, "url": req.url, "headers": dict(req.headers), "post_data": req.post_data})
+
+    app.on("request", _on_request)
+    campo.fill(str(semillas[0]))
+    boton_agregar.click()
+    app.wait_for_timeout(1200)
+    app.remove_listener("request", _on_request)
+
+    if not solicitudes:
+        raise RuntimeError("No se pudo capturar la llamada real a ValidarCliente para clonarla.")
+    r = solicitudes[0]
+
+    candidatos = set()
+    for semilla in semillas:
+        for delta in range(-radio, radio + 1):
+            candidatos.add(semilla + delta)
+
+    for numero in sorted(candidatos):
+        if r["method"] == "GET":
+            url_intento = re.sub(r"\d{6,}", str(numero), r["url"]) if re.search(r"\d{6,}", r["url"]) else f"{r['url']}?numeroCliente={numero}"
+            resp = app.request.get(url_intento, headers=r["headers"])
+        else:
+            body = r["post_data"]
+            body_nuevo = re.sub(r"\d{6,}", str(numero), body) if body else f'{{"numeroCliente":"{numero}"}}'
+            resp = app.request.post(r["url"], headers=r["headers"], data=body_nuevo)
+        try:
+            datos = resp.json()
+        except Exception:
+            continue
+        if isinstance(datos, dict) and datos.get("estadoCliente") == estado_deseado:
+            # limpiar el lote (el escaneo deja el primer candidato agregado)
+            # - "Quitar" exige seleccionar la fila primero (queda disabled
+            # sin eso), mas simple vaciar todo el lote con "Limpiar".
+            boton_limpiar = frame.locator("button", has_text=re.compile(r"^\s*Limpiar\s*$"))
+            if boton_limpiar.count():
+                boton_limpiar.first.click()
+                app.wait_for_timeout(400)
+            return str(numero)
+
+    raise RuntimeError(f"No se encontro ningun cliente con estadoCliente={estado_deseado!r} entre {len(candidatos)} candidatos escaneados.")
+
+
 def trasladar_y_confirmar(app, frame):
     """Pulsa Trasladar y acepta el dialogo de confirmacion (¿Esta seguro...?,
     clase .ant-modal/nz-modal-container) - DISTINTO del popover de resultado
