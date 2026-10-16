@@ -481,7 +481,7 @@ def boton_por_texto(frame, texto):
     return frame.locator("button", has_text=re.compile(r"^\s*" + re.escape(texto) + r"\s*$"))
 
 
-MESES_ABREV_NZ = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+MESES_ABREV_NZ = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic"]
 
 
 def seleccionar_fecha_calendario(app, frame, input_locator, dia, mes, anio):

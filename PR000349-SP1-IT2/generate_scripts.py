@@ -149,7 +149,7 @@ def boton_por_texto(frame, texto):
     return frame.locator("button", has_text=re.compile(r"^\\s*" + re.escape(texto) + r"\\s*$"))
 
 
-MESES_ABREV_NZ = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+MESES_ABREV_NZ = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic"]
 
 
 def seleccionar_fecha_calendario(app, frame, input_locator, dia, mes, anio):
@@ -1277,27 +1277,27 @@ capturar_paso(app, "fecha_futura_revertida", paso_excel=2)
 # convenio: mensaje "Listado generado." + descarga real
 # "InformeConveniosDeuda_20260303.xlsx".
 
-_MOTIVO_BLOQUEO_RF08_CP044 = (
-    "necesita un convenio VIGENTE real en la tabla conve para el cliente "
-    "1259207. El usuario corrio el INSERT de la matriz (estado='V', "
-    "corr_convenio=1, columnas tasa_fija/id_tasa_convenio omitidas por no "
-    "existir en el esquema real) SIN error, pero 'Vigentes' con la fecha "
-    "de hoy sigue mostrando 'No existen registros para el requerimiento.' "
-    "(confirmado en vivo 26/09/2026, ver explore_56_rf08_datos_insertados.py) "
-    "- a diferencia del INSERT de CP045 (mismo cliente, estado='C'), que SI "
-    "aparece de inmediato. Causa no confirmada: podria ser una regla de "
-    "negocio adicional de 'Vigentes' no capturada por el INSERT de la "
-    "matriz (ej. saldo_origen/deuda_convenida en 0 no calificando como "
-    "'vigente', o la columna ind_caduca de la tabla real, ausente del "
-    "INSERT de la matriz) - el usuario decidio dejarlo pendiente el "
-    "26/09/2026 en vez de seguir ajustando el INSERT. Ver memoria del "
-    "proyecto PR000349-SP1 (seccion RF-08) para el detalle completo."
-)
+CUERPOS_REALES["CP044"] = '''
+# RESUELTO 16/10/2026: NO era falta de dato ni regla de negocio - era el
+# mismo bug de nz-date-picker que CP050/051 de RF-09 (fill() no actualiza
+# el FormControl real). Con fecha de corte 10/07/2026 (en vez de la fecha
+# de insercion 26/09/2026 que se probo originalmente en IT1) via clic real
+# en el calendario, el convenio Vigente del cliente 1259207 SI aparece.
+app, frame = abrir_listado_facilidades_deuda_energia(page, paso_excel=1)
+# "Vigentes" ya viene marcado por defecto (no hace falta click).
+campo_fecha = frame.locator('input[placeholder="Seleccionar fecha"]')
+seleccionar_fecha_calendario(app, frame, campo_fecha, 10, 7, 2026)
+frame.locator("body").click()
+app.wait_for_timeout(500)
+capturar_paso(app, "vigentes_fecha_corte_completada", paso_excel=3)
 
-CUERPOS_REALES["CP044"] = f'''
-raise NotImplementedError(
-    "CP044 (RF-08 - Generar informe de Vigentes): {_MOTIVO_BLOQUEO_RF08_CP044}"
-)
+with app.expect_download(timeout=15000) as info_descarga:
+    frame.locator("button", has_text=re.compile(r"Generar")).click()
+descarga = info_descarga.value
+app.wait_for_timeout(800)
+mensaje = frame.locator("body").inner_text()
+assert "listado generado" in mensaje.lower(), f"No se vio el mensaje de exito esperado: {mensaje[-300:]!r}"
+capturar_paso(app, "listado_generado", paso_excel=4)
 '''
 
 CUERPOS_REALES["CP045"] = '''

@@ -19,11 +19,6 @@
     "fecha_verificacion": "2026-10-16",
     "evidencia": "PR000349-SP1 RF-06, sesion de exploracion en vivo"
   },
-  "CP044": {
-    "motivo": "El INSERT de la matriz en la tabla conve (cliente 1259207, corr_convenio=1, estado='V') se corrio SIN error, pero 'Vigentes' con la fecha de hoy sigue mostrando 'No existen registros para el requerimiento.' - a diferencia de CP045 (mismo cliente, estado='C'), que si aparecio de inmediato con el mismo tipo de INSERT. Causa raiz no confirmada: podria faltar la columna real ind_caduca (ausente del INSERT de la matriz) o requerir saldo_origen/deuda_convenida > 0 para calificar como 'vigente'. NOTA 16/10/2026: no se re-probo con el fix de seleccionar_fecha_calendario (el bug real de CP050/051 de RF-09) - posible pendiente a reintentar, ya que el sintoma original ('no existen registros' pese a INSERT corrido sin error) es idéntico al patron resuelto en RF-09.",
-    "fecha_verificacion": "2026-10-15",
-    "evidencia": "PR000349-SP1 RF-08, explore_56_rf08_datos_insertados.py"
-  },
   "CP069": {
     "motivo": "INVESTIGADO A FONDO 16/10/2026 - la tabla etl_log_carga_cli NO esta vacia (tiene datos reales 2000-2003, procesos FACTU/RECAU/CONVE/SALDO/REFAC/NUCLI/LECTU/DIFCAJ, confirmado por SQL directo). El servicio real ConsultarLogCarga devuelve [] SIEMPRE pese a esto, descartando sistematicamente: (1) rango de fechas, (2) mapeo de Proceso a codigoProceso (confirmado FACTURACION->'FACTU' exacto via captura de la request real), (3) antiguedad del dato (se inserto un registro NUEVO en 2026 en ambas tablas etl_log_carga_cli/etl_log_etapa_cli y TAMPOCO aparecio). Conclusion: desalineacion de conexion/base Informix entre lo que se consulta via DBeaver y lo que lee el backend real de Pruebas (misma ambiguedad de conexiones clientes/dbtecnica/sifco ya documentada sin resolver para la tabla cliente de RF-01 en IT1) - requiere que Desarrollo/Infra confirme la conexion real del servicio, no es resoluble sembrando mas datos.",
     "fecha_verificacion": "2026-10-16",
