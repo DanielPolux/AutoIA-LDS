@@ -481,6 +481,46 @@ def boton_por_texto(frame, texto):
     return frame.locator("button", has_text=re.compile(r"^\s*" + re.escape(texto) + r"\s*$"))
 
 
+MESES_ABREV_NZ = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+
+
+def seleccionar_fecha_calendario(app, frame, input_locator, dia, mes, anio):
+    """Selecciona una fecha en un nz-date-picker (ant-design) haciendo CLIC
+    en el calendario (anio -> mes -> dia), NUNCA tipeando el texto.
+    CONFIRMADO EN VIVO 16/10/2026 (RF-09 CP050): fill() deja el input
+    visualmente con el valor correcto (ng-pristine, confirma que Angular
+    nunca se enteró), pero el FormControl real queda vacío - "Generar"
+    sigue mostrando "No existen registros" pese a que el dato SI existe en
+    la base, exactamente el mismo sintoma/causa ya confirmado en
+    PR000349-SP7 CP042 (otro proyecto, mismo componente). Clickear la
+    celda real del calendario SI actualiza el control. Patron reusable
+    para cualquier nz-date-picker con el sintoma "no encuentra nada pese a
+    que el dato existe" o "se borra solo al perder el foco"."""
+    input_locator.click()
+    app.wait_for_timeout(400)
+    frame.locator(".ant-picker-header-year-btn").last.click()
+    app.wait_for_timeout(400)
+    for _ in range(25):
+        celda_anio = frame.locator(f'.ant-picker-cell[title="{anio}"]').last
+        if celda_anio.count():
+            celda_anio.click()
+            break
+        primero = int(frame.locator(".ant-picker-cell").first.get_attribute("title"))
+        if primero > anio:
+            frame.locator(".ant-picker-header-super-prev-btn").last.click()
+        else:
+            frame.locator(".ant-picker-header-super-next-btn").last.click()
+        app.wait_for_timeout(300)
+    app.wait_for_timeout(400)
+    frame.locator(".ant-picker-header-month-btn").last.click()
+    app.wait_for_timeout(400)
+    frame.locator(f'.ant-picker-cell[title="{MESES_ABREV_NZ[mes - 1]}"]').last.click()
+    app.wait_for_timeout(400)
+    objetivo = f"{dia:02d}/{mes:02d}/{anio}"
+    frame.locator(f'.ant-picker-cell[title="{objetivo}"]').last.click()
+    app.wait_for_timeout(300)
+
+
 #
 # Modulo: Traslado de Clientes (Web LDS)
 # Componente Angular: app-traslado-clientes

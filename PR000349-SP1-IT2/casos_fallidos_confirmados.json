@@ -1,67 +1,52 @@
 {
   "CP032": {
-    "motivo": "Falta dato de prueba: cliente con al menos 4 facturas anulables. Se probaron 8 numeros de cliente reales (Retirado/Cobranza Externa, de suministros.txt) y ninguno tiene facturas anulables ('Sin facturas anulables' siempre). La matriz no trae un INSERT para este caso. RECONFIRMADO IGUAL en IT2 (15/10/2026, 19 dias despues) - sin cambios.",
-    "fecha_verificacion": "2026-10-15",
-    "evidencia": "PR000349-SP1 RF-06, sesion de exploracion en vivo (8 clientes reales probados)"
+    "motivo": "Falta dato de prueba: cliente con al menos 4 facturas anulables. Se probaron 8 numeros de cliente reales (Retirado/Cobranza Externa, de suministros.txt) y ninguno tiene facturas anulables ('Sin facturas anulables' siempre). La matriz no trae un INSERT para este caso. RECONFIRMADO IGUAL en IT2 (15/10/2026, 19 dias despues) - sin cambios. Investigado de nuevo 16/10/2026 desde el otro lado (tabla acl_movi_cliente_fact con clientes facturados reales, 2020 y junio/octubre 2026): NINGUNO de esos clientes facturados esta en estado Retirado/Cobranza Externa - la interseccion 'facturado Y en ese estado' probablemente no existe en este ambiente.",
+    "fecha_verificacion": "2026-10-16",
+    "evidencia": "PR000349-SP1 RF-06, sesion de exploracion en vivo (8+20 clientes reales probados en total)"
   },
   "CP033": {
-    "motivo": "Depende de CP032 (necesita una refacturacion previamente generada para poder revertirla). Bloqueado por la misma falta de dato que CP032. RECONFIRMADO IGUAL en IT2 (15/10/2026, 19 dias despues) - sin cambios.",
-    "fecha_verificacion": "2026-10-15",
+    "motivo": "Depende de CP032 (necesita una refacturacion previamente generada para poder revertirla). Bloqueado por la misma falta de dato que CP032. RECONFIRMADO IGUAL en IT2 (15-16/10/2026) - sin cambios.",
+    "fecha_verificacion": "2026-10-16",
     "evidencia": "PR000349-SP1 RF-06, mismo hallazgo que CP032"
   },
   "CP035": {
-    "motivo": "Falta dato de prueba: factura antigua anulable cuya tasa de IGV historica sea distinta a la vigente actualmente. No se encontro ni genero una factura con esa condicion en el ambiente de Pruebas. RECONFIRMADO IGUAL en IT2 (15/10/2026, 19 dias despues) - sin cambios.",
-    "fecha_verificacion": "2026-10-15",
+    "motivo": "Falta dato de prueba: factura antigua anulable cuya tasa de IGV historica sea distinta a la vigente actualmente. No se encontro ni genero una factura con esa condicion en el ambiente de Pruebas. RECONFIRMADO IGUAL en IT2 (15-16/10/2026) - sin cambios.",
+    "fecha_verificacion": "2026-10-16",
     "evidencia": "PR000349-SP1 RF-06, sesion de exploracion en vivo"
   },
   "CP036": {
-    "motivo": "Falta dato de prueba: factura anulable con consumo fisico registrado hace mas de 12 meses. No se encontro ni genero una factura con esa condicion en el ambiente de Pruebas. RECONFIRMADO IGUAL en IT2 (15/10/2026, 19 dias despues) - sin cambios.",
-    "fecha_verificacion": "2026-10-15",
+    "motivo": "Falta dato de prueba: factura anulable con consumo fisico registrado hace mas de 12 meses. No se encontro ni genero una factura con esa condicion en el ambiente de Pruebas. RECONFIRMADO IGUAL en IT2 (15-16/10/2026) - sin cambios.",
+    "fecha_verificacion": "2026-10-16",
     "evidencia": "PR000349-SP1 RF-06, sesion de exploracion en vivo"
   },
   "CP044": {
-    "motivo": "El INSERT de la matriz en la tabla conve (cliente 1259207, corr_convenio=1, estado='V') se corrio SIN error, pero 'Vigentes' con la fecha de hoy sigue mostrando 'No existen registros para el requerimiento.' - a diferencia de CP045 (mismo cliente, estado='C'), que si aparecio de inmediato con el mismo tipo de INSERT. Causa raiz no confirmada: podria faltar la columna real ind_caduca (ausente del INSERT de la matriz) o requerir saldo_origen/deuda_convenida > 0 para calificar como 'vigente'. RECONFIRMADO IGUAL en IT2 (15/10/2026, 19 dias despues) - sin cambios.",
+    "motivo": "El INSERT de la matriz en la tabla conve (cliente 1259207, corr_convenio=1, estado='V') se corrio SIN error, pero 'Vigentes' con la fecha de hoy sigue mostrando 'No existen registros para el requerimiento.' - a diferencia de CP045 (mismo cliente, estado='C'), que si aparecio de inmediato con el mismo tipo de INSERT. Causa raiz no confirmada: podria faltar la columna real ind_caduca (ausente del INSERT de la matriz) o requerir saldo_origen/deuda_convenida > 0 para calificar como 'vigente'. NOTA 16/10/2026: no se re-probo con el fix de seleccionar_fecha_calendario (el bug real de CP050/051 de RF-09) - posible pendiente a reintentar, ya que el sintoma original ('no existen registros' pese a INSERT corrido sin error) es idéntico al patron resuelto en RF-09.",
     "fecha_verificacion": "2026-10-15",
     "evidencia": "PR000349-SP1 RF-08, explore_56_rf08_datos_insertados.py"
   },
-  "CP050": {
-    "motivo": "Falta INSERT de datos en la tabla fac_cli (cliente 1259207, facilidad Vigente). La matriz trae el INSERT (validado en Desarrollo 17/09/2026) pero no se corrio - ademas, verificar el esquema real de fac_cli primero (SELECT * FROM fac_cli WHERE 1=0), ya que el INSERT analogo de RF-08 (tabla conve) tenia columnas que no existen en el esquema real de este ambiente. RECONFIRMADO IGUAL en IT2 (15/10/2026, 19 dias despues) - sin cambios.",
-    "fecha_verificacion": "2026-10-15",
-    "evidencia": "PR000349-SP1 RF-09, pantalla real confirmada funcionando (sin CORS), solo falta el dato"
-  },
-  "CP051": {
-    "motivo": "Falta INSERT de datos en la tabla fac_cli (clientes 4 y 2292893, facilidad Cancelada/Revocada). Mismo criterio que CP050. RECONFIRMADO IGUAL en IT2 (15/10/2026, 19 dias despues) - sin cambios.",
-    "fecha_verificacion": "2026-10-15",
-    "evidencia": "PR000349-SP1 RF-09, mismo hallazgo que CP050"
-  },
-  "CP055": {
-    "motivo": "Reutiliza el dato de CP050 o CP051 (ambos bloqueados) para tener un filtro con resultados y verificar el formato de descarga XLSX. RECONFIRMADO IGUAL en IT2 (15/10/2026, 19 dias despues) - sin cambios.",
-    "fecha_verificacion": "2026-10-15",
-    "evidencia": "PR000349-SP1 RF-09, depende de CP050/CP051"
-  },
   "CP069": {
-    "motivo": "La tabla de logs del DWH (etl_log_carga_cli) esta completamente vacia en el ambiente de Pruebas - confirmado probando los 12 procesos disponibles con un rango de fechas de 11 anios (2015-2026), la API ConsultarLogCarga siempre devolvio []. No hay INSERT provisto en la matriz para este caso. RECONFIRMADO IGUAL en IT2 (15/10/2026, 19 dias despues) - sin cambios.",
-    "fecha_verificacion": "2026-10-15",
-    "evidencia": "PR000349-SP1 RF-12, explore_50..52_rf12_*.py"
+    "motivo": "INVESTIGADO A FONDO 16/10/2026 - la tabla etl_log_carga_cli NO esta vacia (tiene datos reales 2000-2003, procesos FACTU/RECAU/CONVE/SALDO/REFAC/NUCLI/LECTU/DIFCAJ, confirmado por SQL directo). El servicio real ConsultarLogCarga devuelve [] SIEMPRE pese a esto, descartando sistematicamente: (1) rango de fechas, (2) mapeo de Proceso a codigoProceso (confirmado FACTURACION->'FACTU' exacto via captura de la request real), (3) antiguedad del dato (se inserto un registro NUEVO en 2026 en ambas tablas etl_log_carga_cli/etl_log_etapa_cli y TAMPOCO aparecio). Conclusion: desalineacion de conexion/base Informix entre lo que se consulta via DBeaver y lo que lee el backend real de Pruebas (misma ambiguedad de conexiones clientes/dbtecnica/sifco ya documentada sin resolver para la tabla cliente de RF-01 en IT1) - requiere que Desarrollo/Infra confirme la conexion real del servicio, no es resoluble sembrando mas datos.",
+    "fecha_verificacion": "2026-10-16",
+    "evidencia": "PR000349-SP1 RF-12, SQL directo (SELECT + JOIN con etl_log_etapa_cli) + captura de red real de ConsultarLogCarga (request con codigoProceso='FACTU' sin fecha, response '[]')"
   },
   "CP070": {
-    "motivo": "Misma tabla de logs vacia que CP069 - necesita al menos 1 registro real para verificar el filtrado. RECONFIRMADO IGUAL en IT2 (15/10/2026, 19 dias despues) - sin cambios.",
-    "fecha_verificacion": "2026-10-15",
+    "motivo": "Mismo hallazgo que CP069 (no es falta de dato, es desalineacion de conexion/base BD) - necesita que Desarrollo/Infra confirme la conexion real del servicio ConsultarLogCarga.",
+    "fecha_verificacion": "2026-10-16",
     "evidencia": "PR000349-SP1 RF-12, mismo hallazgo que CP069"
   },
   "CP071": {
-    "motivo": "Necesita un registro de log CON etapas asociadas en etl_log_etapa_cli - la tabla esta vacia, no hay ningun registro que tenga ni pueda tener etapas. RECONFIRMADO IGUAL en IT2 (15/10/2026, 19 dias despues) - sin cambios.",
-    "fecha_verificacion": "2026-10-15",
-    "evidencia": "PR000349-SP1 RF-12, mismo hallazgo que CP069"
+    "motivo": "Mismo hallazgo que CP069. Dato real CON etapas SI existe (confirmado por JOIN: numero_log 4747 y 4757 son FACTU con 5 etapas reales cada uno en etl_log_etapa_cli, fecha 2003) - el bloqueo no es falta de dato sino que el servicio no los encuentra por la desalineacion de conexion/base BD.",
+    "fecha_verificacion": "2026-10-16",
+    "evidencia": "PR000349-SP1 RF-12, JOIN etl_log_carga_cli + etl_log_etapa_cli (numero_log 4740-4761)"
   },
   "CP073": {
-    "motivo": "Necesita 2 o mas registros de log con fechas distintas para verificar el orden descendente - la tabla esta vacia. RECONFIRMADO IGUAL en IT2 (15/10/2026, 19 dias despues) - sin cambios.",
-    "fecha_verificacion": "2026-10-15",
+    "motivo": "Mismo hallazgo que CP069 - hay de sobra mas de 2 registros con fechas distintas en etl_log_carga_cli (2000-2003 y el insertado en 2026), el bloqueo es la desalineacion de conexion/base BD, no falta de dato.",
+    "fecha_verificacion": "2026-10-16",
     "evidencia": "PR000349-SP1 RF-12, mismo hallazgo que CP069"
   },
   "CP074": {
-    "motivo": "Necesita un registro de log SIN etapas asociadas. La matriz SI trae el INSERT exacto para etl_log_carga_cli (elegir un numero_log no usado y no insertar nada en etl_log_etapa_cli para ese numero), pero no se corrio. RECONFIRMADO IGUAL en IT2 (15/10/2026, 19 dias despues) - sin cambios.",
-    "fecha_verificacion": "2026-10-15",
-    "evidencia": "PR000349-SP1 RF-12, INSERT disponible en columna 'datos' de CP074 en matriz_casos.json"
+    "motivo": "Mismo hallazgo que CP069. Se insertó el registro SIN etapas exacto que pide la matriz (numero_log=9990001, proceso FACTU, fecha 2026, sin fila en etl_log_etapa_cli) y TAMPOCO aparecio en la pantalla real - confirma que el bloqueo es la desalineacion de conexion/base BD, no la falta del INSERT (que ya se corrio).",
+    "fecha_verificacion": "2026-10-16",
+    "evidencia": "PR000349-SP1 RF-12, INSERT real corrido (numero_log=9990001) confirmado por el usuario sin aparecer en pantalla"
   }
 }

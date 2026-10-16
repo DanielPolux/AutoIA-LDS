@@ -481,6 +481,46 @@ def boton_por_texto(frame, texto):
     return frame.locator("button", has_text=re.compile(r"^\s*" + re.escape(texto) + r"\s*$"))
 
 
+MESES_ABREV_NZ = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+
+
+def seleccionar_fecha_calendario(app, frame, input_locator, dia, mes, anio):
+    """Selecciona una fecha en un nz-date-picker (ant-design) haciendo CLIC
+    en el calendario (anio -> mes -> dia), NUNCA tipeando el texto.
+    CONFIRMADO EN VIVO 16/10/2026 (RF-09 CP050): fill() deja el input
+    visualmente con el valor correcto (ng-pristine, confirma que Angular
+    nunca se enteró), pero el FormControl real queda vacío - "Generar"
+    sigue mostrando "No existen registros" pese a que el dato SI existe en
+    la base, exactamente el mismo sintoma/causa ya confirmado en
+    PR000349-SP7 CP042 (otro proyecto, mismo componente). Clickear la
+    celda real del calendario SI actualiza el control. Patron reusable
+    para cualquier nz-date-picker con el sintoma "no encuentra nada pese a
+    que el dato existe" o "se borra solo al perder el foco"."""
+    input_locator.click()
+    app.wait_for_timeout(400)
+    frame.locator(".ant-picker-header-year-btn").last.click()
+    app.wait_for_timeout(400)
+    for _ in range(25):
+        celda_anio = frame.locator(f'.ant-picker-cell[title="{anio}"]').last
+        if celda_anio.count():
+            celda_anio.click()
+            break
+        primero = int(frame.locator(".ant-picker-cell").first.get_attribute("title"))
+        if primero > anio:
+            frame.locator(".ant-picker-header-super-prev-btn").last.click()
+        else:
+            frame.locator(".ant-picker-header-super-next-btn").last.click()
+        app.wait_for_timeout(300)
+    app.wait_for_timeout(400)
+    frame.locator(".ant-picker-header-month-btn").last.click()
+    app.wait_for_timeout(400)
+    frame.locator(f'.ant-picker-cell[title="{MESES_ABREV_NZ[mes - 1]}"]').last.click()
+    app.wait_for_timeout(400)
+    objetivo = f"{dia:02d}/{mes:02d}/{anio}"
+    frame.locator(f'.ant-picker-cell[title="{objetivo}"]').last.click()
+    app.wait_for_timeout(300)
+
+
 #
 # Modulo: Traslado de Clientes (Web LDS)
 # Componente Angular: app-traslado-clientes
@@ -1802,7 +1842,24 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError("CP051 (RF-09 - Generar informe de Cancelados/Revocados): necesita una facilidad real en la tabla fac_cli para el cliente 1259207 (Vigente) o clientes 4/2292893 (Cancelado/Revocado) - sin datos seeded, 'Generar' siempre da 'No existen registros para el requerimiento.' La propia matriz trae el INSERT (validado en Desarrollo 17/09/2026, ver columna precond de CP050/CP051 en matriz_casos.json) pero OJO: el INSERT analogo de RF-08 (tabla conve) tenia 2 columnas que no existen en el esquema real de este ambiente (tasa_fija/id_tasa_convenio) y fechas literales que dieron error de conversion - verificar el esquema REAL de fac_cli primero (SELECT * FROM fac_cli WHERE 1=0) antes de correr el INSERT tal cual. Bloqueado 26/09/2026, ver memoria del proyecto PR000349-SP1 (seccion RF-09).")
+            app, frame = abrir_listado_ingresos_cnr_deuda_servicios(page, paso_excel=1)
+            frame.get_by_text(re.compile("Cancelados", re.I)).click()
+            app.wait_for_timeout(400)
+            # nz-date-picker: usar seleccionar_fecha_calendario (clic real), fill()
+            # deja el FormControl vacio aunque el input se vea bien (ver CP050).
+            campo_fecha = frame.locator('input[placeholder="Seleccionar fecha"]')
+            seleccionar_fecha_calendario(app, frame, campo_fecha, 30, 4, 2025)  # coincide con fecha_termino de la facilidad Cancelada insertada (cliente 4)
+            frame.locator("body").click()
+            app.wait_for_timeout(500)
+            capturar_paso(app, "cancelados_revocados_fecha_corte_completada", paso_excel=2)
+
+            with app.expect_download(timeout=15000) as info_descarga:
+                frame.locator("button", has_text=re.compile(r"Generar")).click()
+            descarga = info_descarga.value
+            app.wait_for_timeout(800)
+            mensaje = frame.locator("body").inner_text()
+            assert "listado generado" in mensaje.lower(), f"No se vio el mensaje de exito esperado: {mensaje[-300:]!r}"
+            capturar_paso(app, "listado_generado", paso_excel=4)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True
