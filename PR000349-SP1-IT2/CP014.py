@@ -1848,7 +1848,7 @@ def main():
             SEMILLAS_CLIENTES_RF01_CP014 = [264252, 264279, 1583373, 1764523, 781409,
                                             781410, 1830410, 781435, 781384, 781428,
                                             781429, 264302, 264268, 781431]
-            cliente_cp014 = encontrar_cliente_en_estado(app1, frame1, SEMILLAS_CLIENTES_RF01_CP014, "2")
+            cliente_cp014 = encontrar_cliente_en_estado(app1, frame1, SEMILLAS_CLIENTES_RF01_CP014, "2", radio=100)
             agregar_cliente_traslado(app1, frame1, cliente_cp014)
             trasladar_y_confirmar(app1, frame1)
             app1.close()

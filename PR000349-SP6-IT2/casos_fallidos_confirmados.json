@@ -1,0 +1,7 @@
+{
+  "CP007": {
+    "motivo": "Al presionar 'Modificar' el campo 'Codigo de plan' queda deshabilitado (disabled) en el formulario. CONFIRMADO POR EL USUARIO (21/10/2026) revisando en vivo: el defecto depende del LARGO del codigo - con un Plan de 1 caracter (ej. 'A') el backend responde 'El Plan a modificar no existe.' (no encuentra el plan); con un Plan de 2 caracteres SI funciona correctamente y guarda el cambio. Causa raiz mas precisa que 'cualquier campo disabled se excluye siempre' (hipotesis inicial descartada): probablemente un problema de formato/padding en como el backend recibe o compara el codigo de 1 solo caracter (ej. truncado, con espacio en blanco, o comparado contra un codigo de 2 caracteres esperado), no una exclusion generica de FormControls disabled. Confirmado identico en IT1 (12-13/10/2026) y reconfirmado en IT2 (21/10/2026), reproducible en corrida aislada y en vivo paso a paso por el usuario.",
+    "fecha_verificacion": "2026-10-21",
+    "evidencia": "PR000349-SP6-IT2/CP007/CP007_03_valor_modificado.png (campo Codigo de plan 'A', 1 caracter, visiblemente deshabilitado/gris mientras el resto del formulario esta editable); PR000349-SP6-IT2/reportes/logs/CP007.log; confirmado en vivo por el usuario comparando Plan de 1 caracter (falla) vs Plan de 2 caracteres (funciona)"
+  }
+}

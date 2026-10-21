@@ -10,6 +10,7 @@
 !/.gitignore
 !/CLAUDE.md
 !/requirements.txt
+!/Opciones_Menu_Principal.xlsx
 !/PR*/
 
 # Dentro de cada PR*/: permitir solo los programas y su matriz, todo lo

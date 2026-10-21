@@ -1,0 +1,2415 @@
+"""
+generate_scripts.py - PR000349-SP7 (Migracion modulo EncargoCobra:
+auditoria de afiliaciones, relacion cliente-encargo/cliente-proyecto,
+transferencia de archivos, encargos de cobranza, promociones,
+afiliaciones por promotor especial, resumen periodico de afiliacion).
+
+CONFIRMADO EN VIVO 13/10/2026 (_exploracion/explore_0[1-3]*.py):
+
+1. 8 RF, 53 casos (MCP_PR000349_Sprint7.xlsx).
+
+2. Usuario de pruebas: DCABA_DW / Melquisedec_01 - ve las 8 pantallas.
+
+3. Navegacion: Aplicaciones > Comercial > <Nombre exacto>, DIRECTO (2
+   niveles, sin categoria intermedia). Mismo mecanismo de siempre
+   (popup con iframe #aplicacion).
+
+4. Framework ant-design/ng-zorro confirmado (71 ocurrencias "ant-", 26
+   "nz-" en el HTML de RF-01) - MISMO framework que PR000349-SP6, se
+   reusan los helpers ya probados ahi (filas_tabla, confirmar_dialogo_
+   si_aparece, capturar_mensaje_dialogo, elegir_opcion_combo) como
+   punto de partida.
+
+5. Las 8 pantallas y sus componentes Angular raiz, confirmados
+   abriendo cada una con DCABA_DW:
+   RF-01 Auditoria De Afiliaciones          -> app-afilia            (9 casos)
+   RF-02 Mantenimiento De Clientes De Encargos -> app-cliente-encargo (6 casos)
+   RF-03 Consulta De Proyectos De Encargos  -> app-proyecto          (7 casos)
+   RF-04 Restaura Y Transfiere A Proceso    -> app-traslado          (5 casos)
+   RF-05 Encargos De Cobranza               -> app-lisafi            (8 casos)
+   RF-06 Promocion De Afiliados             -> app-promocion         (6 casos)
+   RF-07 Afiliaciones Por Promotores Especiales -> app-afiliacion-especial (6 casos)
+   RF-08 Resumen De Afiliacion              -> app-resumen-afiliacion (6 casos)
+
+6. RF-01 (la pantalla mas grande, "mantenedor principal") inspeccionada
+   visualmente (_exploracion/dump/RF01_pantalla.png): filtro "Encargo
+   de Cobranza" (combo) + "N. de Cliente" (con boton "..." - probable
+   buscador generico de clientes, ver EF linea 130) + "Nombre" +
+   "Documento" + boton "Leer". Grilla "Titulares" (Correlativo/Nombre/
+   Estado) a la izquierda. Formulario con 2 tabs ("Datos del Titular"/
+   "Beneficiarios") con muchos campos (N. Solicitud, Familia, Fecha de
+   Nacimiento, Nombres, Apellidos, Documento Tipo/Nro, Domicilio, Plan,
+   Responsable en caso de Desamparo, Nivel y Promocion, checkboxes
+   Afiliacion por FAX/Habilitar Promocion). Botones: Ingresar/
+   Modificar/Afiliar/Desafiliar/Cerrar + "Historial de Auditoria..."
+   (abre pantalla secundaria, ver RN-21 del EF).
+
+7. Manuales de usuario para RF-01 y RF-06 agregados por el usuario son
+   PLACEHOLDERS VACIOS (solo titulo "pendiente de reemplazo", sin
+   contenido real) - no aportan nada mas alla de confirmar los codigos
+   de sistema legado AFILIA/AUDITAFI (RF-01) y PROMOAFI (RF-06). Usar
+   el EF/ET + exploracion en vivo como fuente real.
+
+8. OJO - la matriz trae precondiciones con INSERTs SQL reales para
+   generar datos de prueba faltantes (ej. CP001 necesita un afiliado
+   real en el encargo 0002, cliente 926226, corr_afiliado 1) - antes
+   de escribir los casos de RF-01 en adelante, confirmar con el
+   usuario si hace falta preparar datos via BD (ver
+   reference_db_informix_dbeaver.md en memoria) o si ya existen datos
+   reales utilizables, para no quedar bloqueados como paso en otros
+   proyectos (PR000325-SP6 RF-01, PR000326-SP2 RF-01/RF-11).
+
+9. Sin explorar todavia en este pase: estructura interna completa de
+   cada pantalla (selectores de campo exactos por name, mensajes
+   reales de validacion, combos y sus opciones reales, estructura de
+   grillas) - Paso 2 completo pendiente POR PANTALLA antes de escribir
+   el cuerpo real de cada CP, igual que en PR000349-SP6.
+"""
+import json
+import sys
+from pathlib import Path
+
+OUT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(OUT_DIR.parent / "_framework"))
+import web_lds_core as core  # noqa: E402
+
+PROYECTO = "PR000349-SP7-IT2"
+MATRIZ = json.loads((OUT_DIR / "matriz_casos.json").read_text(encoding="utf-8"))
+
+ENV_TOGGLES = core.ENV_TOGGLES_CODE.replace("__PROYECTO__", PROYECTO)
+
+HEADER_TEMPLATE = '''"""
+{docstring_con_ficha_del_caso}
+"""
+import os, re, shutil, struct, subprocess, time, zipfile
+from datetime import date, timedelta
+from pathlib import Path
+from xml.sax.saxutils import escape as _escape_xml
+from playwright.sync_api import sync_playwright, expect, TimeoutError as PWTimeoutError
+
+''' + ENV_TOGGLES + '''
+
+URL = "https://pldsweb.luzdelsur.com.pe/Plataforma/PlataformaWeb"
+USUARIO = "DCABA_DW"
+PASSWORD = "Melquisedec_01"
+
+CASO = "{cp}"
+EVIDENCIA = Path(__file__).resolve().parent / CASO
+if EVIDENCIA.exists():
+    shutil.rmtree(EVIDENCIA, ignore_errors=True)
+EVIDENCIA.mkdir(parents=True, exist_ok=True)
+
+NOMBRE_CASO = {name_repr}
+RF_CASO = {rf_repr}
+CU_CASO = {cu_repr}
+DESCRIPCION_CASO = {desc_repr}
+RESULTADO_ESPERADO_CASO = {esperado_repr}
+PASOS_CASO = {pasos_repr}
+
+%%CAPTURAR_PASO%%
+
+%%LOGIN%%
+
+%%NAV%%
+
+%%HELPERS_ESPERA%%
+
+%%VIDEO_HELPERS%%
+
+# --- Navegacion propia de este proyecto: Aplicaciones > Comercial > <pantalla>, directo ---
+# CONFIRMADO EN VIVO 13/10/2026: 2 niveles de menu (sin categoria
+# intermedia), entrar SIEMPRE por el portal.
+
+def abrir_afiliaciones(page, paso_excel=None):
+    return abrir_aplicacion(page, ["Comercial", "Auditoria De Afiliaciones"], "app-afilia", paso_excel=paso_excel)
+
+
+def abrir_cliente_encargo(page, paso_excel=None):
+    return abrir_aplicacion(page, ["Comercial", "Mantenimiento De Clientes De Encargos"], "app-cliente-encargo", paso_excel=paso_excel)
+
+
+def abrir_proyectos(page, paso_excel=None):
+    return abrir_aplicacion(page, ["Comercial", "Consulta De Proyectos De Encargos"], "app-proyecto", paso_excel=paso_excel)
+
+
+def abrir_traslado(page, paso_excel=None):
+    return abrir_aplicacion(page, ["Comercial", "Restaura Y Transfiere A Proceso"], "app-traslado", paso_excel=paso_excel)
+
+
+def abrir_encargos_cobranza(page, paso_excel=None):
+    return abrir_aplicacion(page, ["Comercial", "Encargos De Cobranza"], "app-lisafi", paso_excel=paso_excel)
+
+
+def abrir_promocion(page, paso_excel=None):
+    return abrir_aplicacion(page, ["Comercial", "Promocion De Afiliados"], "app-promocion", paso_excel=paso_excel)
+
+
+def abrir_afiliacion_especial(page, paso_excel=None):
+    return abrir_aplicacion(page, ["Comercial", "Afiliaciones Por Promotores Especiales"], "app-afiliacion-especial", paso_excel=paso_excel)
+
+
+def abrir_resumen_afiliacion(page, paso_excel=None):
+    return abrir_aplicacion(page, ["Comercial", "Resumen De Afiliacion"], "app-resumen-afiliacion", paso_excel=paso_excel)
+
+
+# Las 8 pantallas confirmadas con DCABA_DW (ver docstring del modulo).
+
+def filas_tabla(frame):
+    """Las grillas de PR000349-SP7 NO usan ant-table (confirmado en
+    vivo 14/10/2026, grilla Titulares de RF-01): cuando estan vacias
+    muestran una fila placeholder propia `<tr><td class="empty">Sin
+    titulares. Presione Leer.</td></tr>` (colspan completo, sin
+    ninguna clase tipo ant-table-placeholder) - filtrarla por
+    `td.empty` para que count() refleje filas de datos reales. Tambien
+    se excluyen por compatibilidad los patrones ant-table de
+    PR000349-SP6 (ant-table-measure-now/ant-table-placeholder) por si
+    alguna otra pantalla de este proyecto SI los usa."""
+    return frame.locator("tbody tr:not(.ant-table-measure-now):not(.ant-table-placeholder):not(:has(td.empty))")
+
+
+def fila_por_codigo(frame, columna_idx, codigo):
+    """Busca la fila cuya celda en `columna_idx` (separando por tabs
+    en inner_text()) sea exactamente `codigo` (recorriendo en Python,
+    no con has_text=regex: confirmado en vivo en PR000349-SP6 que el
+    \\b de Playwright no matchea contra el texto real de las filas de
+    estas tablas)."""
+    filas = filas_tabla(frame)
+    for i in range(filas.count()):
+        columnas = filas.nth(i).inner_text().split("\\t")
+        if len(columnas) > columna_idx and columnas[columna_idx].strip() == codigo:
+            return filas.nth(i)
+    raise AssertionError(f"No se encontro ninguna fila con columna[{{columna_idx}}] = {{codigo!r}}")
+
+
+def buscar_fila_en_paginas(app, frame, columna_idx, valor, max_paginas=25):
+    """Recorre las paginas de la grilla (boton 'Siguiente' de
+    ant-design) buscando una fila cuya columna `columna_idx` (separada
+    por tabs en inner_text()) sea exactamente `valor`. SIEMPRE reinicia
+    a la pagina 1 antes de buscar (clickeando 'Anterior' repetidas
+    veces). Devuelve el texto completo de la fila, o "" si no se
+    encontro en `max_paginas` paginas."""
+    anterior = frame.locator("li.ant-pagination-prev button, .ant-pagination-prev")
+    for _ in range(max_paginas):
+        if anterior.count() and not anterior.first.is_disabled():
+            anterior.first.click()
+            app.wait_for_timeout(500)
+        else:
+            break
+    for _ in range(max_paginas):
+        filas = filas_tabla(frame)
+        for i in range(filas.count()):
+            texto = filas.nth(i).inner_text()
+            columnas = texto.split("\\t")
+            if len(columnas) > columna_idx and columnas[columna_idx] == valor:
+                return texto
+        siguiente = frame.locator("li.ant-pagination-next button, .ant-pagination-next")
+        if siguiente.count() and not siguiente.first.is_disabled():
+            siguiente.first.click()
+            app.wait_for_timeout(800)
+        else:
+            break
+    return ""
+
+
+def elegir_opcion_combo(app, frame, indice_combo, texto_opcion, max_scrolls=15):
+    """Abre el combo .ant-select-selector en la posicion `indice_combo`
+    y selecciona la opcion cuyo texto completo sea `texto_opcion`,
+    forzando scroll dentro del cdk-virtual-scroll-viewport si hace
+    falta. Devuelve True si la encontro y clickeo, False si no, SIN
+    lanzar excepcion (el caller decide si eso es un error)."""
+    combos = frame.locator(".ant-select-selector")
+    combos.nth(indice_combo).click()
+    app.wait_for_timeout(600)
+    contenedor = frame.locator("cdk-virtual-scroll-viewport").first
+    for _ in range(max_scrolls):
+        opciones = frame.locator("nz-option-item, [role='option']")
+        for i in range(opciones.count()):
+            if opciones.nth(i).inner_text().strip() == texto_opcion:
+                opciones.nth(i).click()
+                return True
+        if contenedor.count():
+            contenedor.evaluate("el => el.scrollTo(0, el.scrollHeight)")
+            app.wait_for_timeout(400)
+        else:
+            break
+    return False
+
+
+def confirmar_dialogo_si_aparece(app, frame, timeout_ms=4000):
+    """Cierra un dialogo .ant-modal/nz-modal-container si aparece
+    (tolerante: si no aparece nada en el timeout, sigue sin fallar).
+    Devuelve el texto del dialogo si aparecio, o None.
+
+    OJO (gotcha de PR000349-SP6): este helper lee+cierra en la MISMA
+    llamada - NO usar si el paso necesita EVIDENCIAR visualmente el
+    mensaje (usar capturar_mensaje_dialogo en ese caso)."""
+    dialogo = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+    try:
+        dialogo.first.wait_for(state="visible", timeout=timeout_ms)
+    except PWTimeoutError:
+        return None
+    texto = dialogo.first.inner_text()
+    boton = dialogo.first.get_by_role("button", name=re.compile(r"^\\s*(Aceptar|S[ií]|Cerrar)\\s*$", re.I))
+    if boton.count():
+        boton.first.click()
+    app.wait_for_timeout(1000)
+    return texto
+
+
+def capturar_mensaje_dialogo(app, frame, descripcion, paso_excel=None, timeout_ms=5000):
+    """Espera el dialogo de validacion/error y lo CAPTURA en evidencia
+    MIENTRAS SIGUE ABIERTO - usar SIEMPRE que el paso deba evidenciar
+    visualmente un mensaje de error/validacion (nunca
+    confirmar_dialogo_si_aparece + capturar_paso por separado, que
+    cierra el modal antes de la captura - bug real confirmado en
+    PR000349-SP6, 22 casos afectados). Devuelve el texto del dialogo,
+    o el texto de toda la pantalla si no aparecio ningun dialogo
+    dentro de `timeout_ms`."""
+    dialogo = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+    try:
+        dialogo.first.wait_for(state="visible", timeout=timeout_ms)
+    except PWTimeoutError:
+        texto = frame.locator("body").inner_text()
+        capturar_paso(app, descripcion, paso_excel=paso_excel)
+        return texto
+    texto = dialogo.first.inner_text()
+    capturar_paso(app, descripcion, paso_excel=paso_excel)
+    boton = dialogo.first.get_by_role("button", name=re.compile(r"^\\s*(Aceptar|S[ií]|Cerrar)\\s*$", re.I))
+    if boton.count():
+        boton.first.click()
+    app.wait_for_timeout(500)
+    return texto
+
+
+def ir_al_tope(frame):
+    """Forzar el scroll del iframe al tope absoluto antes de capturar
+    un formulario - necesario cuando un paso previo clickeo una fila
+    mas abajo en una grilla (deja el iframe scrolleado) y el paso
+    actual necesita evidenciar el formulario completo, no solo la
+    parte baja de la pantalla (bug real confirmado en PR000349-SP6,
+    CP016/CP025/CP035/CP053/CP056 - scroll_into_view_if_needed() de un
+    campo puntual NO alcanza si el scroll necesario es grande)."""
+    frame.locator("body").evaluate("el => el.scrollTo(0, 0)")
+
+
+MESES_ABREV_NZ = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+
+
+def seleccionar_fecha_calendario(app, frame, input_locator, dia, mes, anio):
+    """Selecciona una fecha en un nz-date-picker (ant-design) haciendo
+    CLIC en el calendario (año -> mes -> día), NUNCA tipeando el
+    texto. CONFIRMADO EN VIVO 15/10/2026 (RF-07/CP042): tipear con
+    fill()/press_sequentially() deja el campo "Hasta" vacío al perder
+    el foco (el DOM se actualiza visualmente pero el FormControl de
+    Angular no se entera), mientras que clickear la celda real del
+    calendario SÍ actualiza el control y el valor persiste - no es un
+    defecto de la app, es que el picker solo escucha sus propios
+    eventos de selección, no el tecleo simulado. Patrón reusable para
+    cualquier nz-date-picker de Web LDS con el mismo síntoma."""
+    input_locator.click()
+    app.wait_for_timeout(400)
+    frame.locator(".ant-picker-header-year-btn").last.click()
+    app.wait_for_timeout(400)
+    for _ in range(25):
+        celda_anio = frame.locator(f'.ant-picker-cell[title="{{anio}}"]').last
+        if celda_anio.count():
+            celda_anio.click()
+            break
+        primero = int(frame.locator(".ant-picker-cell").first.get_attribute("title"))
+        if primero > anio:
+            frame.locator(".ant-picker-header-super-prev-btn").last.click()
+        else:
+            frame.locator(".ant-picker-header-super-next-btn").last.click()
+        app.wait_for_timeout(300)
+    else:
+        raise RuntimeError(f"No se encontro el anio {{anio}} en el selector tras 25 saltos de decada")
+    app.wait_for_timeout(400)
+    frame.locator(".ant-picker-header-month-btn").last.click()
+    app.wait_for_timeout(400)
+    abrev = MESES_ABREV_NZ[mes - 1]
+    frame.locator(f'.ant-picker-cell[title="{{abrev}}"]').last.click()
+    app.wait_for_timeout(400)
+    objetivo = f"{{dia:02d}}/{{mes:02d}}/{{anio}}"
+    frame.locator(f'.ant-picker-cell[title="{{objetivo}}"]').last.click()
+    app.wait_for_timeout(300)
+
+%%WORD_HELPERS%%
+
+
+def main():
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=HEADLESS, slow_mo=SLOWMO)
+        opciones_contexto = {{"viewport": {{"width": 1600, "height": 900}}}}
+        if GRABAR_VIDEO:
+            opciones_contexto["record_video_dir"] = str(EVIDENCIA)
+            opciones_contexto["record_video_size"] = {{"width": 1600, "height": 900}}
+        context = browser.new_context(**opciones_contexto)
+        if GRABAR_VIDEO:
+            context.add_init_script(%%CURSOR_OVERLAY_JS%%)
+        page = context.new_page()
+        app = None
+        _CASO_OK = False
+        try:
+            login(page, paso_excel=1)
+            {abrir_call}
+
+{body}
+
+            capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
+            _CASO_OK = True
+
+        except (PWTimeoutError, AssertionError) as e:
+            print(f"[FALLO] {{CASO}} FALLO: {{e}}")
+            (app if app else page).screenshot(path=str(EVIDENCIA / f"{{CASO}}_error.png"), full_page=True)
+            raise
+        finally:
+            if GRABAR_VIDEO:
+                (app if app else page).wait_for_timeout(3000)
+            video_portal = page.video
+            video_app = app.video if app else None
+            browser.close()
+            if GRABAR_VIDEO:
+                # browser.close() retorna antes de que el flush a disco de
+                # un video de una pagina extra (page@*.webm huerfano) este
+                # garantizado completo - esperar antes del glob de abajo.
+                time.sleep(1.5)
+            if _CASO_OK:
+                ruta_portal = _renombrar_video(video_portal, EVIDENCIA / f"{{CASO}}-1.webm") if video_portal is not None else None
+                ruta_app = _renombrar_video(video_app, EVIDENCIA / f"{{CASO}}-2.webm") if video_app is not None else None
+                rutas_videos = [r for r in (ruta_portal, ruta_app) if r is not None]
+                rutas_videos.extend(p for p in sorted(EVIDENCIA.glob("page@*.webm")) if p not in rutas_videos)
+                if len(rutas_videos) > 1:
+                    _unir_videos(EVIDENCIA / f"{{CASO}}_video.webm", *rutas_videos)
+                elif len(rutas_videos) == 1:
+                    try:
+                        rutas_videos[0].replace(EVIDENCIA / f"{{CASO}}_video.webm")
+                    except (PermissionError, OSError) as e:
+                        print(f"  (aviso) no se pudo renombrar el video final: {{e}}")
+                if GRABAR_WORD:
+                    generar_word_evidencia()
+                # Barrido final: cualquier page@*.webm que haya quedado
+                # suelto se confirmo en vivo (PR000349-SP6) que puede ser
+                # un artefacto EN BLANCO o un DUPLICADO de contenido ya
+                # incluido - nunca footage realmente perdido, pero
+                # verificar antes de asumir en vez de borrar a ciegas si
+                # aparece reiteradamente.
+                for extra in EVIDENCIA.glob("page@*.webm"):
+                    for _intento_descarte in range(4):
+                        try:
+                            extra.unlink(missing_ok=True)
+                            break
+                        except (PermissionError, OSError):
+                            time.sleep(0.5)
+            else:
+                for video_obj in (video_portal, video_app):
+                    if video_obj is None:
+                        continue
+                    for _intento_descarte in range(4):
+                        try:
+                            Path(video_obj.path()).unlink(missing_ok=True)
+                            break
+                        except (PermissionError, OSError):
+                            time.sleep(0.5)
+                for extra in EVIDENCIA.glob("page@*.webm"):
+                    for _intento_descarte in range(4):
+                        try:
+                            extra.unlink(missing_ok=True)
+                            break
+                        except (PermissionError, OSError):
+                            time.sleep(0.5)
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def render(caso: dict) -> str:
+    body = "\n".join("            " + linea if linea.strip() else "" for linea in caso["body"].strip("\n").splitlines())
+    docstring = f"""CP: {caso['cp']}
+RF: {caso['rf']}  |  CU: {caso['cu']}
+Nombre: {caso['name']}
+Descripcion: {caso['desc']}
+Resultado esperado: {caso['esperado']}"""
+    return HEADER_TEMPLATE.format(
+        docstring_con_ficha_del_caso=docstring,
+        cp=caso["cp"], name_repr=repr(caso["name"]), rf_repr=repr(caso["rf"]),
+        cu_repr=repr(caso["cu"]), desc_repr=repr(caso["desc"]),
+        esperado_repr=repr(caso["esperado"]), pasos_repr=repr(caso.get("pasos", "")),
+        body=body, abrir_call=caso["abrir_call"],
+    ).replace("%%CAPTURAR_PASO%%", core.CAPTURAR_PASO_CODE) \
+     .replace("%%LOGIN%%", core.LOGIN_BLOCK) \
+     .replace("%%NAV%%", core.CLICK_VISIBLE_BLOCK + "\n\n\n" + core.ABRIR_APLICACION_BLOCK) \
+     .replace("%%HELPERS_ESPERA%%", core.ESPERAR_FIN_CARGA_BLOCK + "\n\n\n" + core.ESPERAR_ANIMACION_BLOCK + "\n\n\n" + core.SELECCIONAR_PRIMERA_OPCION_BLOCK + "\n\n\n" + core.SELECCIONAR_OPCION_POR_TEXTO_BLOCK) \
+     .replace("%%VIDEO_HELPERS%%", core.RENOMBRAR_VIDEO_BLOCK) \
+     .replace("%%CURSOR_OVERLAY_JS%%", repr(core.CURSOR_JS_FULL.strip("\n"))) \
+     .replace("%%WORD_HELPERS%%", core.WORD_HELPERS_FULL.strip("\n"))
+
+
+CASES = []
+
+
+def add(cp, abrir_call, body):
+    m = MATRIZ[cp]
+    CASES.append(dict(
+        cp=cp, rf=m["rf"], cu=m["cu"], name=m["name"], desc=m["desc"],
+        esperado=m["esperado"], pasos=m.get("pasos", ""),
+        abrir_call=abrir_call, body=body,
+    ))
+
+
+# ===========================================================================
+# TODO: escribir los add("CPxxx", ...) de cada RF aca, uno por uno, DESPUES
+# de explorar en vivo la pantalla correspondiente (Paso 2 del checklist) -
+# no escribir a ciegas solo mirando la matriz. Ver PR000349-SP6/
+# generate_scripts.py como referencia de la profundidad de exploracion
+# esperada antes de escribir cada bloque de RF.
+# ===========================================================================
+
+# ===========================================================================
+# RF-01: Auditoria de Afiliaciones (_exploracion/explore_0[3-4]*.py)
+# ===========================================================================
+# - Combo "Encargo de Cobranza" es un <select> NATIVO (id="selEncargo"),
+#   NO ant-design - manejar con select_option(value=...). 4 opciones
+#   reales: 0002=PLUZ PROTECCION, 0005=PLUZ SALUD, 0009=PLUZ EMERGENCIA,
+#   0013=PLUZ SEPELIO.
+# - Filtro superior sin name: inputs.nth(0)=N. de Cliente, nth(1)=Nombre
+#   (calculado), nth(2)=Documento (calculado).
+# - Grilla "Titulares" SI es ant-table (filas_tabla() funciona).
+# - Dato de prueba confirmado en vivo 13/10/2026 (ver
+#   Documentos/datos_prueba_RF01.sql, bloque 1.1): cliente 926226,
+#   encargo 0002 tiene 2 titulares reales: corr_afiliado=1 "LUIS ERNESTO
+#   DE OLAZAVAL TEJADA" (Desafiliado, dato real preexistente) y
+#   corr_afiliado=2 (mismo cliente, estado Afiliado, agregado via SQL
+#   para destrabar CP001/CP005/CP007/CP008/CP009).
+
+add("CP001", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("926226")
+capturar_paso(app, "cliente_ingresado", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+ir_al_tope(frame)
+capturar_paso(app, "titulares_mostrados", paso_excel=4)
+dialogo = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+assert dialogo.count() == 0 or not dialogo.first.is_visible(), f"No se esperaba ningun dialogo de rechazo para el cliente 926226 (elegible, sin restricciones): {dialogo.first.inner_text() if dialogo.count() else None!r}"
+filas = filas_tabla(frame)
+assert filas.count() >= 1, f"Se esperaba al menos 1 titular del cliente 926226 en la grilla, se vieron {filas.count()}"
+texto_grilla = " | ".join(filas.nth(i).inner_text().replace("\\n", " ") for i in range(filas.count()))
+assert "Afiliado" in texto_grilla, f"Se esperaba ver al menos un titular en estado Afiliado: {texto_grilla!r}"
+''')
+
+# Cliente real con tarifa BT6 confirmado en vivo 14/10/2026 (consulta
+# directa a la BD, tabla cliente/columna tarifa): 22340 (otros
+# candidatos: 1416825, 7153, 1279198, 7132). Mensaje real confirmado:
+# "No se puede afiliar cliente con tipo de tarifa BT6." en una Ventana
+# de Validacion normal (no Error de Servicio).
+add("CP002", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("22340")
+capturar_paso(app, "cliente_bt6_ingresado", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_restriccion", paso_excel=4, timeout_ms=5000)
+assert "bt6" in mensaje.lower(), f"Se esperaba el mensaje de restriccion por tarifa BT6: {mensaje!r}"
+filas = filas_tabla(frame)
+assert filas.count() == 0, f"El cliente con tarifa BT6 NO deberia cargar titulares, se vieron {filas.count()}"
+''')
+
+# Plan "PLAN FAMILIAR" de la matriz NO EXISTE: confirmado en vivo
+# 14/10/2026 que el Encargo 0002 solo tiene 3 planes reales (A/B/C,
+# sin descripcion) tanto en esta pantalla (API ObtenerPlanesPorEncargo:
+# [{"codigoPlan":"A","monto":2.48},{"B",1.49},{"C",0.99}], sin campo de
+# nombre) como en la pantalla analoga "Administracion De Planes De
+# Encargo" de PR000349-SP6 (misma data real, columna Descripcion vacia
+# para los 3). Se usa Plan "A". Nivel "General" para evitar necesitar
+# un Promotor o Rol de Promotor Especial real (el combo Promotor no
+# tiene opciones cargadas en el ambiente).
+# Mensajes EXACTOS confirmados por el manual real (RF-01, seccion 3.4/
+# 3.6): "Titular registrado correctamente." tras Grabar.
+add("CP003", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("926226")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+frame.get_by_role("button", name=re.compile(r"^Ingresar$", re.I)).click()
+app.wait_for_timeout(1000)
+frame.locator('input[name="fechaNacimiento"]').fill("1990-05-20")
+frame.locator('input[name="nombres"]').fill("JUAN CARLOS")
+frame.locator('input[name="apellidos"]').fill("GARCIA PEREZ")
+frame.locator("#selTipoDoc").select_option(value="005")
+frame.locator('input[name="numeroDocumento"]').fill("08945612")
+frame.locator('input[name="domicilio"]').fill("AV PRUEBA QA 123")
+frame.locator("#selPlan").select_option(value="A")
+frame.locator("#selNivel").select_option(value="GENERAL")
+app.wait_for_timeout(500)
+hoy = date.today().isoformat()
+frame.locator('input[name="fechaAfiliacion"]').fill(hoy)
+ir_al_tope(frame)
+capturar_paso(app, "datos_completos", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Grabar", re.I)).click()
+app.wait_for_timeout(2500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_registro", paso_excel=4, timeout_ms=5000)
+assert "registrado correctamente" in mensaje.lower(), f"Se esperaba el mensaje de titular registrado: {mensaje!r}"
+ir_al_tope(frame)
+capturar_paso(app, "titular_en_grilla", paso_excel=4)
+filas = filas_tabla(frame)
+texto_grilla = " | ".join(filas.nth(i).inner_text().replace("\\n", " ") for i in range(filas.count()))
+assert "GARCIA PEREZ" in texto_grilla, f"Se esperaba ver al nuevo titular JUAN CARLOS GARCIA PEREZ en la grilla: {texto_grilla!r}"
+''')
+
+# Cliente 926226 ya tiene 3 afiliaciones ACTIVAS reales (corr_afiliado
+# 2/4/5 - el corr=3 original del bloque 1.2 quedo tomado por el alta
+# real de CP003, asi que el bloque uso 4 y 5 en su lugar; igual suman 3
+# activas) con el parametro PARSEG/MCLIAF=3 ya sembrado (ver
+# Documentos/datos_prueba_RF01.sql bloques 1.2/1.3). Confirmado en vivo
+# 14/10/2026 (ver _exploracion/dump/cp004_tras_ingresar.png): el rechazo
+# ocurre DE INMEDIATO al presionar "Ingresar" (antes de habilitar el
+# formulario) - no hace falta llenar ni Grabar nada, el limite es por
+# CLIENTE (cuenta todas sus afiliaciones activas sin importar el
+# documento), no por documento como se asumio originalmente. Mensaje
+# real: "El cliente alcanzó el máximo de 3 afiliación(es) activas
+# permitidas."
+add("CP004", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("926226")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+filas_antes = filas_tabla(frame).count()
+capturar_paso(app, "cliente_en_el_limite", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"^Ingresar$", re.I)).click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_limite", paso_excel=4, timeout_ms=5000)
+assert "maximo" in mensaje.lower() or "m\\u00e1ximo" in mensaje.lower(), f"Se esperaba el mensaje de limite de afiliaciones alcanzado: {mensaje!r}"
+assert "afiliaci" in mensaje.lower(), f"Se esperaba que el mensaje mencione 'afiliaciones': {mensaje!r}"
+app.wait_for_timeout(500)
+filas_despues = filas_tabla(frame).count()
+assert filas_despues == filas_antes, f"No debio agregarse ningun titular nuevo: antes={filas_antes} despues={filas_despues}"
+''')
+
+
+# Titular corr_afiliado=2 (cliente 926226, encargo 0002, bloque 1.1 de
+# datos_prueba_RF01.sql) - mismo usado en CP001/CP004. Domicilio
+# original 'UNO', se cambia a 'AV. LOS ANGELES 452 DPTO 302' (dato de
+# la matriz). fecha_nacimiento tuvo que completarse aparte (estaba en
+# blanco incluso en el titular real original corr=1 - ver memoria del
+# proyecto) porque Modificar la exige (RN no documentada en la matriz).
+# Confirmado en vivo 14/10/2026: tras Grabar, el boton "Historial de
+# Auditoria..." abre un MODAL dentro del mismo frame (no una ventana
+# nueva) con columnas Cambio/Dato Anterior/Dato Modificado/Rol/Fecha -
+# fila real vista: "Domicilio | UNO | AV. LOS ANGELES 452 DPTO 302 |
+# DACD | 14/10/2026".
+add("CP005", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("926226")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+fila_titular = fila_por_codigo(frame, 0, "2")
+fila_titular.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"^Modificar$", re.I)).click()
+app.wait_for_timeout(1000)
+nuevo_domicilio = "AV. LOS ANGELES 452 DPTO 302"
+frame.locator(\'input[name="domicilio"]\').fill(nuevo_domicilio)
+campo_fecha_nac = frame.locator(\'input[name="fechaNacimiento"]\')
+if (campo_fecha_nac.input_value() or "").strip() == "":
+    campo_fecha_nac.fill("1960-01-01")
+ir_al_tope(frame)
+capturar_paso(app, "domicilio_cambiado", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Grabar", re.I)).click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_modificado", paso_excel=4, timeout_ms=5000)
+assert "modificado correctamente" in mensaje.lower(), f"Se esperaba confirmacion de modificacion: {mensaje!r}"
+fila_titular = fila_por_codigo(frame, 0, "2")
+fila_titular.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Historial de Auditor", re.I)).click()
+app.wait_for_timeout(1500)
+capturar_paso(app, "historial_auditoria", paso_excel=5)
+texto_historial = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S)).first.inner_text()
+assert "Domicilio" in texto_historial, f"El historial deberia registrar el cambio de Domicilio: {texto_historial!r}"
+assert nuevo_domicilio in texto_historial, f"El historial deberia mostrar el nuevo domicilio: {texto_historial!r}"
+boton_cerrar = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S)).first.get_by_role("button", name=re.compile(r"^Cerrar$", re.I))
+if boton_cerrar.count():
+    boton_cerrar.first.click()
+app.wait_for_timeout(500)
+''')
+
+
+# Cliente 52124 (sin necesidad de SQL - confirmado en vivo 14/10/2026
+# que ya tiene 2 titulares reales en estado Desafiliado). El rechazo
+# ocurre de inmediato al presionar Modificar (igual patron que CP004
+# con Ingresar), sin necesitar llenar ni Grabar nada.
+add("CP006", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("52124")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+fila_titular = fila_por_codigo(frame, 0, "1")
+fila_titular.click()
+app.wait_for_timeout(500)
+capturar_paso(app, "titular_desafiliado_seleccionado", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"^Modificar$", re.I)).click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_rechazo", paso_excel=4, timeout_ms=5000)
+assert "no se puede modificar" in mensaje.lower(), f"Se esperaba el mensaje de rechazo por estado Desafiliado: {mensaje!r}"
+assert "desafiliado" in mensaje.lower(), f"Se esperaba que el mensaje mencione el estado Desafiliado: {mensaje!r}"
+campo_nombres = frame.locator(\'input[name="nombres"]\')
+assert campo_nombres.get_attribute("disabled") is not None, "El formulario NO debio habilitarse para edicion tras el rechazo"
+''')
+
+
+# Reusa el titular Preafiliado REAL creado por CP003 (corr_afiliado=3,
+# GARCIA PEREZ JUAN CARLOS, cliente 926226) en vez del INSERT de la
+# matriz - la propia matriz admite que su INSERT no sirve para esto
+# ("Pruebas no tiene filas en estado P, asi que el caso parte del
+# titular activo del bloque 1.1" - su plantilla pone estado='A', no
+# 'P'). DEPENDE de que CP003 se haya corrido antes (orden alfabetico
+# normal de run_all.py) - si se corre CP007 aislado sin CP003 previo,
+# fallara por no encontrar un Preafiliado.
+add("CP007", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("926226")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+fila_titular = fila_por_codigo(frame, 0, "3")
+fila_titular.click()
+app.wait_for_timeout(500)
+capturar_paso(app, "titular_preafiliado_seleccionado", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"^Afiliar$", re.I)).click()
+app.wait_for_timeout(1000)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_afiliar", paso_excel=4, timeout_ms=5000)
+assert "seguro" in mensaje_confirmacion.lower() and "afiliar" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de afiliar: {mensaje_confirmacion!r}"
+app.wait_for_timeout(1000)
+mensaje_exito = capturar_mensaje_dialogo(app, frame, "mensaje_afiliado", paso_excel=5, timeout_ms=5000)
+assert "afiliado correctamente" in mensaje_exito.lower(), f"Se esperaba confirmacion de afiliacion exitosa: {mensaje_exito!r}"
+app.wait_for_timeout(500)
+fila_actualizada = fila_por_codigo(frame, 0, "3")
+assert "Afiliado" in fila_actualizada.inner_text(), f"El titular deberia quedar en estado Afiliado: {fila_actualizada.inner_text()!r}"
+''')
+
+
+# Cliente 1291599, titular corr_afiliado=2 clonado por SQL (ver
+# Documentos/datos_prueba_RF01.sql bloque 1.3-B - el INSERT original de
+# la matriz apuntaba por error a 926226, no a este cliente) + agenda
+# sector 1/zona 140 en estado 'X' (bloque 1.4). El rechazo ocurre tras
+# la confirmacion "Si" (2 dialogos en secuencia, igual patron que
+# CP007 pero terminando en rechazo en vez de exito).
+add("CP008", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("1291599")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+fila_titular = fila_por_codigo(frame, 0, "2")
+fila_titular.click()
+app.wait_for_timeout(500)
+capturar_paso(app, "titular_afiliado_en_facturacion", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"^Desafiliar$", re.I)).click()
+app.wait_for_timeout(1000)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_desafiliar", paso_excel=4, timeout_ms=5000)
+assert "seguro" in mensaje_confirmacion.lower() and "desafiliar" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de desafiliar: {mensaje_confirmacion!r}"
+app.wait_for_timeout(1000)
+mensaje_rechazo = capturar_mensaje_dialogo(app, frame, "mensaje_rechazo_facturacion", paso_excel=5, timeout_ms=5000)
+assert "facturaci" in mensaje_rechazo.lower(), f"Se esperaba el mensaje de rechazo por facturacion: {mensaje_rechazo!r}"
+app.wait_for_timeout(500)
+fila_final = fila_por_codigo(frame, 0, "2")
+assert "Afiliado" in fila_final.inner_text() and "Desafiliado" not in fila_final.inner_text(), f"El titular NO debio desafiliarse: {fila_final.inner_text()!r}"
+''')
+
+
+# Titular corr_afiliado=2 (cliente 926226, mismo reusado en
+# CP001/CP004/CP005). Confirmado en vivo 14/10/2026: el limite de
+# beneficiarios esta FIJO en 5 en el codigo actual, NO conectado al
+# catalogo PARSEG/MBENAF que documenta el ET (se probo sembrar
+# MBENAF=2 y no tuvo ningun efecto - hallazgo real, ver memoria del
+# proyecto). "Agregar Beneficiario" graba de inmediato en el servidor
+# (no es un borrador local que recien se persiste con Grabar) - por
+# eso el caso agrega y LUEGO borra los 5 beneficiarios de prueba, para
+# no dejar basura en el titular que reusan otros casos de RF-01.
+add("CP009", "app, frame = abrir_afiliaciones(page, paso_excel=2)", '''
+frame.locator("#selEncargo").select_option(value="0002")
+app.wait_for_timeout(500)
+inputs = frame.locator("input")
+inputs.nth(0).fill("926226")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+fila_titular = fila_por_codigo(frame, 0, "2")
+fila_titular.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"^Modificar$", re.I)).click()
+app.wait_for_timeout(1000)
+frame.get_by_text("Beneficiarios", exact=True).click()
+app.wait_for_timeout(800)
+
+boton_agregar = frame.locator("button", has_text="Agregar Beneficiario")
+dialogo = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+beneficiarios_prueba = [
+    ("ANA", "LIMITE BENEF UNO", "2010-01-15", "20"),
+    ("LUIS", "LIMITE BENEF DOS", "2011-02-20", "20"),
+    ("CARLOS", "LIMITE BENEF TRES", "2012-03-25", "20"),
+    ("MARIA", "LIMITE BENEF CUATRO", "2013-04-30", "20"),
+    ("JOSE", "LIMITE BENEF CINCO", "2014-05-10", "20"),
+]
+for nombres, apellidos, fecha_nac, porcentaje in beneficiarios_prueba:
+    frame.locator(\'input[name="benNombres"]\').fill(nombres)
+    frame.locator(\'input[name="benApellidos"]\').fill(apellidos)
+    frame.locator("#selBenParentesco").select_option(value="02")
+    frame.locator(\'input[name="benFechaNacimiento"]\').fill(fecha_nac)
+    frame.locator(\'input[name="benPorcentaje"]\').fill(porcentaje)
+    boton_agregar.first.click()
+    app.wait_for_timeout(1200)
+    assert not dialogo.count(), f"No se esperaba rechazo agregando el beneficiario {nombres!r} (debajo del limite): {dialogo.first.inner_text() if dialogo.count() else \'\'}"
+
+capturar_paso(app, "limite_de_beneficiarios_alcanzado", paso_excel=3)
+frame.locator(\'input[name="benNombres"]\').fill("PEDRO")
+frame.locator(\'input[name="benApellidos"]\').fill("LIMITE BENEF SEIS")
+frame.locator("#selBenParentesco").select_option(value="02")
+frame.locator(\'input[name="benFechaNacimiento"]\').fill("2015-06-15")
+frame.locator(\'input[name="benPorcentaje"]\').fill("20")
+boton_agregar.first.click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_limite_beneficiarios", paso_excel=4, timeout_ms=5000)
+assert "maximo" in mensaje.lower() or "m\\u00e1ximo" in mensaje.lower(), f"Se esperaba el mensaje de limite de beneficiarios alcanzado: {mensaje!r}"
+assert "beneficiari" in mensaje.lower(), f"Se esperaba que el mensaje mencione \'beneficiarios\': {mensaje!r}"
+
+# Limpieza: borrar los 5 beneficiarios de prueba para no dejar basura
+# en el titular que reusan CP001/CP004/CP005. Tolerante a la animacion
+# ant-spin que aparece brevemente tras cada Borrar (confirmado en vivo:
+# puede interceptar un click aunque el borrado anterior ya haya
+# terminado del lado servidor) - cada intento va envuelto en try/except
+# para no abortar el caso completo por una carrera cosmetica.
+boton_borrar = frame.locator("button", has_text="Borrar Beneficiario")
+for _ in range(10):
+    filas_benef = frame.locator("tbody tr").filter(has_text=re.compile(r"LIMITE BENEF"))
+    if filas_benef.count() == 0:
+        break
+    try:
+        filas_benef.first.click(timeout=8000)
+        app.wait_for_timeout(500)
+        boton_borrar.first.click(timeout=8000)
+        app.wait_for_timeout(1200)
+        for _reintento in range(2):
+            if dialogo.count():
+                boton_ok = dialogo.first.get_by_role("button", name=re.compile(r"Aceptar", re.I))
+                if boton_ok.count():
+                    boton_ok.first.click(timeout=5000)
+                    app.wait_for_timeout(1200)
+    except PWTimeoutError:
+        app.wait_for_timeout(1000)
+app.wait_for_timeout(500)
+filas_restantes = frame.locator("tbody tr").filter(has_text=re.compile(r"LIMITE BENEF"))
+assert filas_restantes.count() == 0, f"Quedaron beneficiarios de prueba sin limpiar: {filas_restantes.count()}"
+''')
+
+
+
+# ============================================================================
+# RF-02 Mantenimiento de Clientes de Encargos (app-cliente-encargo).
+# A diferencia de RF-01, esta pantalla SI usa ant-design (.ant-select-
+# selector) para los combos Encargo y Descripcion del Proyecto.
+# Inputs reales confirmados por name: numeroCliente, numeroCuotas,
+# valorCuota. Nombre del Cliente y Codigo de Proyecto son readonly SIN
+# name (posicion fija en el DOM, documentado en cada caso). Estado se
+# lee de span.estado-tag.
+# ============================================================================
+
+# Cliente 4016918 YA tiene relacion vigente real en el encargo 0001
+# (proyecto 930591, 19 cuotas) - sin necesitar SQL.
+add("CP010", "app, frame = abrir_cliente_encargo(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("4016918")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+ir_al_tope(frame)
+capturar_paso(app, "relacion_vigente", paso_excel=3)
+estado = frame.locator("span.estado-tag").inner_text().strip()
+assert estado == "Vigente", f"Se esperaba estado Vigente: {estado!r}"
+cuotas = frame.locator("#numeroCuotas input").input_value()
+assert cuotas.strip() != "", f"Se esperaba un N. de Cuotas visible: {cuotas!r}"
+''')
+
+
+# Cliente 1200017 CONFIRMADO en vivo 14/10/2026 sin relacion previa
+# (boton "Ingresar" en vez de "Modificar" tras Leer). Este mismo
+# cliente queda como fixture real Vigente para que CP015 lo revoque
+# despues - no se usa SQL en ningun momento. OJO: en esta pantalla
+# "Ingresar" ES el boton de submit (no un mero cambio de modo como en
+# RF-01) - los campos ya estan editables apenas carga un cliente
+# nuevo, sin necesitar un primer clic en Ingresar para "entrar en modo
+# edicion".
+add("CP011", "app, frame = abrir_cliente_encargo(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200017")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+app.wait_for_timeout(500)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="880390").first.click()
+app.wait_for_timeout(500)
+frame.locator("#numeroCuotas input").fill("12")
+frame.locator("#valorCuota input").fill("45.50")
+capturar_paso(app, "datos_completos", paso_excel=3)
+frame.locator("button", has_text="Ingresar").click()
+app.wait_for_timeout(1200)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_registro", paso_excel=4, timeout_ms=5000)
+assert "registrar" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de registro: {mensaje_confirmacion!r}"
+# Confirmado en vivo 14/10/2026: esta pantalla NO muestra un segundo
+# dialogo de "exito" tras confirmar (a diferencia de RF-01) - la unica
+# evidencia de que el registro funciono es que la grilla/Estado pasa
+# directo a "Vigente" y los botones cambian a Modificar/Revocar.
+app.wait_for_timeout(1500)
+capturar_paso(app, "relacion_registrada", paso_excel=5)
+estado = frame.locator("span.estado-tag").inner_text().strip()
+assert estado == "Vigente", f"La relacion deberia quedar Vigente: {estado!r}"
+''')
+
+
+# Cliente 1200001, encargo 0001, relacion vigente real con proyecto
+# 880390 (ver Documentos/datos_prueba_RF01.sql - bloque de RF-02,
+# INSERT manual en encarg_cli). A diferencia del Plan de RF-01, aqui
+# el combo Descripcion del Proyecto SI muestra su descripcion real
+# (sin hueco de datos) y queda editable sin necesitar un primer clic
+# en Modificar.
+add("CP012", "app, frame = abrir_cliente_encargo(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200001")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+app.wait_for_timeout(500)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+capturar_paso(app, "proyecto_distinto_seleccionado", paso_excel=3)
+frame.locator("button", has_text="Modificar").click()
+app.wait_for_timeout(1200)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_modificar", paso_excel=4, timeout_ms=5000)
+assert "modificar" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de modificar: {mensaje_confirmacion!r}"
+app.wait_for_timeout(1000)
+mensaje_rechazo = capturar_mensaje_dialogo(app, frame, "mensaje_rechazo_proyecto", paso_excel=5, timeout_ms=5000)
+assert "otro proyecto" in mensaje_rechazo.lower(), f"Se esperaba el rechazo por proyecto duplicado: {mensaje_rechazo!r}"
+app.wait_for_timeout(1000)
+# El combo queda mostrando localmente la seleccion del usuario (930612)
+# aunque el backend haya rechazado el cambio - hay que Cerrar y volver
+# a Leer desde cero para confirmar el estado REAL guardado en el
+# servidor, no confiar en lo que la UI muestra tras el rechazo.
+frame.locator("button", has_text="Cerrar").click()
+app.wait_for_timeout(1000)
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200001")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+capturar_paso(app, "proyecto_original_conservado", paso_excel=6)
+combo_proyecto_final = frame.locator(".ant-select-selector").nth(1).inner_text()
+assert "880390" in combo_proyecto_final, f"El proyecto original debia conservarse (880390): {combo_proyecto_final!r}"
+''')
+
+
+# Mismo cliente 1200001 de CP012 (sigue Vigente, proyecto 880390 -
+# CP012 no le cambio nada realmente). Confirmado en vivo: tampoco hay
+# un segundo dialogo de exito tras Modificar (igual que CP011/CP012) -
+# se verifica recargando con Cerrar+Leer, no confiando en los valores
+# que la UI muestra justo despues de confirmar.
+add("CP013", "app, frame = abrir_cliente_encargo(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200001")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+frame.locator("#numeroCuotas input").fill("10")
+frame.locator("#valorCuota input").fill("50.00")
+capturar_paso(app, "cuotas_modificadas", paso_excel=3)
+frame.locator("button", has_text="Modificar").click()
+app.wait_for_timeout(1200)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_modificar", paso_excel=4, timeout_ms=5000)
+assert "modificar" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de modificar: {mensaje_confirmacion!r}"
+app.wait_for_timeout(1500)
+frame.locator("button", has_text="Cerrar").click()
+app.wait_for_timeout(1000)
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200001")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+capturar_paso(app, "cuotas_confirmadas", paso_excel=5)
+cuotas_final = frame.locator("#numeroCuotas input").input_value()
+valor_final = frame.locator("#valorCuota input").input_value()
+assert cuotas_final.strip() == "10", f"Se esperaba N. de Cuotas = 10: {cuotas_final!r}"
+assert "50" in valor_final, f"Se esperaba Valor de Cuota = 50.00: {valor_final!r}"
+''')
+
+
+# Mismo cliente 1200001 (sigue Vigente tras CP013). Por su propio
+# precond, CP014 REVOCA la relacion el mismo (no depende de que otro
+# caso lo haya hecho antes) y luego confirma que Modificar queda
+# bloqueado - 100% autonomo. estado='C' es "Revocado" en la BD real
+# (confirmado en vivo), no 'R'.
+add("CP014", "app, frame = abrir_cliente_encargo(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200001")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+estado_antes = frame.locator("span.estado-tag").inner_text().strip()
+assert estado_antes == "Vigente", f"Se esperaba partir de una relacion Vigente: {estado_antes!r}"
+capturar_paso(app, "relacion_vigente_antes_de_revocar", paso_excel=3)
+frame.locator("button", has_text="Revocar").click()
+app.wait_for_timeout(1200)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_revocar", paso_excel=4, timeout_ms=5000)
+assert "revocada" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de revocar: {mensaje_confirmacion!r}"
+app.wait_for_timeout(1500)
+frame.locator("button", has_text="Cerrar").click()
+app.wait_for_timeout(1000)
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200001")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+estado_despues = frame.locator("span.estado-tag").inner_text().strip()
+assert estado_despues == "Revocado", f"La relacion deberia quedar Revocado: {estado_despues!r}"
+capturar_paso(app, "modificar_bloqueado", paso_excel=5)
+boton_modificar = frame.locator("button", has_text="Modificar")
+assert not boton_modificar.is_enabled(), "El boton Modificar NO debio quedar habilitado sobre una relacion Revocado"
+''')
+
+
+# Revoca el cliente 1200017 que CP011 dejo Vigente (NO el cliente real
+# 4016918 de CP010, para no tocar produccion real). Mismo patron de
+# Cerrar+Leer para confirmar el estado real tras revocar.
+add("CP015", "app, frame = abrir_cliente_encargo(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200017")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+estado_antes = frame.locator("span.estado-tag").inner_text().strip()
+assert estado_antes == "Vigente", f"Se esperaba partir de una relacion Vigente: {estado_antes!r}"
+capturar_paso(app, "relacion_vigente_antes_de_revocar", paso_excel=3)
+frame.locator("button", has_text="Revocar").click()
+app.wait_for_timeout(1200)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_revocar", paso_excel=4, timeout_ms=5000)
+assert "revocada" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de revocar: {mensaje_confirmacion!r}"
+app.wait_for_timeout(1500)
+frame.locator("button", has_text="Cerrar").click()
+app.wait_for_timeout(1000)
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(500)
+frame.locator("nz-option-item, [role=\\'option\\']").filter(has_text="0001").first.click()
+app.wait_for_timeout(500)
+frame.locator(\'input[name="numeroCliente"]\').fill("1200017")
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2000)
+capturar_paso(app, "relacion_revocada", paso_excel=5)
+estado_despues = frame.locator("span.estado-tag").inner_text().strip()
+assert estado_despues == "Revocado", f"La relacion deberia quedar Revocado: {estado_despues!r}"
+''')
+
+
+# ============================================================================
+# RF-03 Consulta de Proyectos de Encargos (app-proyecto). Tambien
+# ant-design. Encargo y Descripcion de Proyecto son combos
+# .ant-select-selector (indices 0 y 1) - el combo Proyecto carga sus
+# opciones via API tras elegir el Encargo, puede tardar >1s, esperar
+# el primer .ant-select-item-option visible antes de buscar por texto.
+# Tras un Leer exitoso el boton cambia de "Leer" a "Sgtes" (paginacion
+# real, NO hacen falta los 30 clientes descartables del bloque 3.2 -
+# el proyecto 930612 YA supera una pagina con datos reales).
+# ============================================================================
+
+# 4 clientes descartables (9900018-21) sembrados en el proyecto 930612
+# del encargo 0001 (ver Documentos, bloque 3.1) - confirmados en vivo
+# en la grilla real junto a ~26 clientes reales preexistentes.
+add("CP016", "app, frame = abrir_proyectos(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones.filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+ir_al_tope(frame)
+capturar_paso(app, "primera_pagina_clientes", paso_excel=3)
+filas = filas_tabla(frame)
+assert filas.count() > 0, "Se esperaba al menos 1 cliente en la primera pagina del proyecto"
+texto_grilla = frame.locator("tbody").inner_text()
+for cliente_descartable in ["9900018", "9900019", "9900020", "9900021"]:
+    assert cliente_descartable in texto_grilla, f"Se esperaba ver el cliente {cliente_descartable} en la grilla"
+boton_sgtes = frame.locator("button", has_text="Sgtes")
+if boton_sgtes.count() and not boton_sgtes.is_disabled():
+    boton_sgtes.click()
+    app.wait_for_timeout(2500)
+    ir_al_tope(frame)
+    capturar_paso(app, "segunda_pagina_clientes", paso_excel=3)
+    filas_pagina2 = filas_tabla(frame)
+    assert filas_pagina2.count() > 0, "Se esperaba al menos 1 cliente en la segunda pagina del proyecto"
+''')
+
+
+# Confirmado en vivo: con solo los 4 clientes del bloque 3.1, la
+# pagina 2 salia VACIA (el proyecto 930612 no superaba una pagina por
+# si solo, contra lo que se asumio al escribir CP016) - hizo falta
+# sembrar tambien el bloque 3.2 (30 clientes descartables 9900101-130)
+# para que CP017 tenga algo real que paginar.
+add("CP017", "app, frame = abrir_proyectos(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones.filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+filas1 = filas_tabla(frame)
+clientes_pagina1 = set()
+for i in range(filas1.count()):
+    cols = filas1.nth(i).inner_text().split("\\t")
+    if len(cols) > 1 and cols[1].strip():
+        clientes_pagina1.add(cols[1].strip())
+assert len(clientes_pagina1) > 0, "Se esperaba al menos 1 cliente en la primera pagina"
+ir_al_tope(frame)
+capturar_paso(app, "primera_pagina", paso_excel=3)
+frame.locator("button", has_text="Sgtes").click()
+app.wait_for_timeout(2500)
+ir_al_tope(frame)
+capturar_paso(app, "segunda_pagina", paso_excel=4)
+filas2 = filas_tabla(frame)
+clientes_pagina2 = set()
+for i in range(filas2.count()):
+    cols = filas2.nth(i).inner_text().split("\\t")
+    if len(cols) > 1 and cols[1].strip():
+        clientes_pagina2.add(cols[1].strip())
+assert len(clientes_pagina2) > 0, "Se esperaba al menos 1 cliente en la segunda pagina"
+interseccion = clientes_pagina1 & clientes_pagina2
+assert not interseccion, f"La pagina 2 NO debio repetir clientes de la pagina 1: {interseccion}"
+''')
+
+
+# Cliente 9900018 (bloque 3.1, mismo del proyecto 930612). Campos de
+# Datos de Cuota confirmados por id real: #in-numero-cuotas,
+# #in-valor-cuota (nz-input-number, apuntar al "input" interno).
+add("CP018", "app, frame = abrir_proyectos(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones.filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+fila_cliente = fila_por_codigo(frame, 1, "9900018")
+fila_cliente.click()
+app.wait_for_timeout(800)
+frame.locator("#in-numero-cuotas input").fill("10")
+frame.locator("#in-valor-cuota input").fill("40.00")
+capturar_paso(app, "cuotas_modificadas", paso_excel=3)
+frame.locator("button", has_text="Modificar").click()
+app.wait_for_timeout(1200)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_modificar", paso_excel=4, timeout_ms=5000)
+assert "cuota" in mensaje_confirmacion.lower() or "modificar" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de modificar cuotas: {mensaje_confirmacion!r}"
+app.wait_for_timeout(1500)
+# El boton "Leer" se vuelve "Sgtes" tras la 1ra consulta (igual que en
+# CP016/CP017) - hay que Cerrar y rearmar Encargo+Proyecto+Leer para
+# confirmar el estado real, no solo re-clickear "Leer".
+frame.locator("button", has_text="Cerrar").click()
+app.wait_for_timeout(1000)
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones2 = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones2.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones2.filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+capturar_paso(app, "cuotas_confirmadas", paso_excel=5)
+fila_final = fila_por_codigo(frame, 1, "9900018")
+fila_final.click()
+app.wait_for_timeout(800)
+cuotas_final = frame.locator("#in-numero-cuotas input").input_value()
+valor_final = frame.locator("#in-valor-cuota input").input_value()
+assert cuotas_final.strip() == "10", f"Se esperaba N. de Cuotas = 10: {cuotas_final!r}"
+assert "40" in valor_final, f"Se esperaba Valor de Cuota = 40.00: {valor_final!r}"
+''')
+
+
+# Cliente 9900019 (bloque 3.1). Caso de concurrencia REAL: abre un
+# SEGUNDO navegador/contexto independiente dentro del mismo script
+# (p.chromium.launch de nuevo, reusando login()/abrir_proyectos() que
+# ya son funciones puras parametrizadas por `page` - no hace falta
+# duplicar el helper) para simular "otro usuario" eliminando el mismo
+# registro mientras la Sesion A sigue con el formulario cargado sin
+# haber presionado Modificar todavia. Mensaje de Eliminar tomado del
+# manual de usuario (RF-03): confirmacion "Esta seguro de eliminar..."
+# -> "El cliente fue eliminado correctamente."
+add("CP019", "app, frame = abrir_proyectos(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones.filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+fila_cliente = fila_por_codigo(frame, 1, "9900019")
+fila_cliente.click()
+app.wait_for_timeout(800)
+capturar_paso(app, "sesion_a_cliente_cargado", paso_excel=3)
+
+browser_b = p.chromium.launch(channel="msedge", headless=HEADLESS, slow_mo=SLOWMO)
+context_b = browser_b.new_context(viewport={"width": 1600, "height": 900})
+page_b = context_b.new_page()
+login(page_b, paso_excel=None)
+app_b, frame_b = abrir_proyectos(page_b, paso_excel=None)
+frame_b.locator(".ant-select-selector").first.click()
+app_b.wait_for_timeout(800)
+frame_b.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app_b.wait_for_timeout(2000)
+frame_b.locator(".ant-select-selector").nth(1).click()
+opciones_b = frame_b.locator(".cdk-overlay-container .ant-select-item-option")
+opciones_b.first.wait_for(state="visible", timeout=10000)
+app_b.wait_for_timeout(500)
+opciones_b.filter(has_text="930612").first.click()
+app_b.wait_for_timeout(500)
+frame_b.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app_b.wait_for_timeout(2500)
+fila_cliente_b = fila_por_codigo(frame_b, 1, "9900019")
+fila_cliente_b.click()
+app_b.wait_for_timeout(800)
+frame_b.locator("button", has_text="Eliminar").click()
+app_b.wait_for_timeout(1200)
+mensaje_confirmacion_b = capturar_mensaje_dialogo(app_b, frame_b, "sesion_b_confirmacion_eliminar", paso_excel=None, timeout_ms=5000)
+assert "eliminar" in mensaje_confirmacion_b.lower(), f"Se esperaba la confirmacion de eliminar en la sesion B: {mensaje_confirmacion_b!r}"
+app_b.wait_for_timeout(1500)
+capturar_paso(app_b, "sesion_b_cliente_eliminado", paso_excel=None)
+context_b.close()
+browser_b.close()
+
+frame.locator("#in-numero-cuotas input").fill("10")
+frame.locator("#in-valor-cuota input").fill("40.00")
+frame.locator("button", has_text="Modificar").click()
+app.wait_for_timeout(1500)
+mensaje_rechazo = capturar_mensaje_dialogo(app, frame, "mensaje_rechazo_eliminado", paso_excel=4, timeout_ms=5000)
+assert "eliminado" in mensaje_rechazo.lower(), f"Se esperaba el rechazo por registro eliminado por otro usuario: {mensaje_rechazo!r}"
+''')
+
+
+# Cliente 9900020 (bloque 3.1). Mismo patron de Cerrar+rearmar
+# Encargo/Proyecto/Leer para confirmar el estado real tras revocar.
+add("CP020", "app, frame = abrir_proyectos(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones.filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+fila_cliente = fila_por_codigo(frame, 1, "9900020")
+assert "Vigente" in fila_cliente.inner_text(), f"Se esperaba partir de un cliente Vigente: {fila_cliente.inner_text()!r}"
+fila_cliente.click()
+app.wait_for_timeout(800)
+capturar_paso(app, "cliente_vigente_antes_de_revocar", paso_excel=3)
+frame.locator("button", has_text="Revocar").click()
+app.wait_for_timeout(1200)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_revocar", paso_excel=4, timeout_ms=5000)
+assert "revocar" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de revocar: {mensaje_confirmacion!r}"
+app.wait_for_timeout(1000)
+# A diferencia de RF-02, esta pantalla SI muestra un segundo dialogo
+# de exito ("El cliente fue revocado correctamente.") - cerrarlo antes
+# de seguir, si no el siguiente clic queda bloqueado por el overlay.
+mensaje_exito = capturar_mensaje_dialogo(app, frame, "mensaje_revocado", paso_excel=5, timeout_ms=5000)
+assert "revocado correctamente" in mensaje_exito.lower(), f"Se esperaba confirmacion de revocado exitoso: {mensaje_exito!r}"
+app.wait_for_timeout(1000)
+frame.locator("button", has_text="Cerrar").click()
+app.wait_for_timeout(1000)
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones2 = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones2.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones2.filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+ir_al_tope(frame)
+capturar_paso(app, "cliente_revocado", paso_excel=6)
+fila_final = fila_por_codigo(frame, 1, "9900020")
+assert "Revocado" in fila_final.inner_text(), f"El cliente deberia quedar Revocado: {fila_final.inner_text()!r}"
+''')
+
+
+# Cliente 9900021 (bloque 3.1). Mismo patron de Eliminar que la
+# Sesion B de CP019 (mensaje "El cliente fue eliminado correctamente.").
+add("CP021", "app, frame = abrir_proyectos(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones.filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+fila_cliente = fila_por_codigo(frame, 1, "9900021")
+assert "Vigente" in fila_cliente.inner_text(), f"Se esperaba partir de un cliente Vigente: {fila_cliente.inner_text()!r}"
+fila_cliente.click()
+app.wait_for_timeout(800)
+capturar_paso(app, "cliente_vigente_antes_de_eliminar", paso_excel=3)
+frame.locator("button", has_text="Eliminar").click()
+app.wait_for_timeout(1200)
+mensaje_confirmacion = capturar_mensaje_dialogo(app, frame, "confirmacion_eliminar", paso_excel=4, timeout_ms=5000)
+assert "eliminar" in mensaje_confirmacion.lower(), f"Se esperaba la confirmacion de eliminar: {mensaje_confirmacion!r}"
+app.wait_for_timeout(1000)
+mensaje_exito = capturar_mensaje_dialogo(app, frame, "mensaje_eliminado", paso_excel=5, timeout_ms=5000)
+assert "eliminado correctamente" in mensaje_exito.lower(), f"Se esperaba confirmacion de eliminado exitoso: {mensaje_exito!r}"
+app.wait_for_timeout(1000)
+frame.locator("button", has_text="Cerrar").click()
+app.wait_for_timeout(1000)
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0001").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones2 = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones2.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones2.filter(has_text="930612").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+ir_al_tope(frame)
+capturar_paso(app, "cliente_eliminado", paso_excel=6)
+fila_final = fila_por_codigo(frame, 1, "9900021")
+assert "Eliminado" in fila_final.inner_text(), f"El cliente deberia quedar Eliminado: {fila_final.inner_text()!r}"
+''')
+
+
+# RESUELTO 15/10/2026: la matriz pedia encargo 0001 con un proyecto sin
+# clientes, pero los 16 proyectos visibles del combo de 0001 TODOS
+# tienen clientes reales (probados uno por uno) - el combo Proyecto
+# parece armarse solo desde encarg_cli (no desde un catalogo
+# independiente), asi que no hay forma de llegar a un proyecto vacio
+# de 0001 desde la UI. El encargo 0002 (PLUZ PROTECCION) en cambio
+# tiene UN SOLO proyecto en su combo: "000000 - PROYECTO DUMMY" -
+# confirmado en vivo que esta genuinamente vacio ("No hay datos" en la
+# grilla). Se usa este en vez del 0001 que sugeria la matriz - el
+# objetivo real del caso (confirmar el mensaje de listado vacio) queda
+# igual de bien cubierto.
+add("CP022", "app, frame = abrir_proyectos(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="0002").first.click()
+app.wait_for_timeout(2000)
+frame.locator(".ant-select-selector").nth(1).click()
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(500)
+opciones.filter(has_text="DUMMY").first.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Leer", re.I)).click()
+app.wait_for_timeout(2500)
+capturar_paso(app, "proyecto_sin_clientes", paso_excel=3)
+texto_grilla = frame.locator("tbody").inner_text()
+assert "No hay datos" in texto_grilla, f"Se esperaba el proyecto DUMMY sin clientes: {texto_grilla!r}"
+frame.get_by_role("button", name=re.compile(r"Imprimir", re.I)).click()
+app.wait_for_timeout(2000)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_sin_registros", paso_excel=4, timeout_ms=5000)
+assert "no se encontraron registros" in mensaje.lower(), f"Se esperaba el mensaje de listado vacio: {mensaje!r}"
+''')
+
+
+# ============================================================================
+# RF-04 Restaura y Transfiere a Proceso (app-traslado). Sin grilla de
+# consulta - un input[type=file] HIDDEN (confirmado en vivo, count=1,
+# sin atributo "multiple" visible) detras del link "Seleccionar
+# archivo(s)". Apuntar DIRECTO a ese input con set_input_files(), sin
+# necesitar expect_file_chooser(). Cada caso CREA sus propios archivos
+# de prueba con tempfile (script 100% autonomo, sin depender de
+# archivos externos al repo).
+# ============================================================================
+
+add("CP023", "app, frame = abrir_traslado(page, paso_excel=2)", '''
+import tempfile
+tmp_dir = Path(tempfile.mkdtemp(prefix="cp023_"))
+archivo1 = tmp_dir / "CLIENTE_ENCARGO_QA_001.txt"
+archivo1.write_text("Archivo de prueba QA - CP023", encoding="utf-8")
+frame.locator("input[type=\\'file\\']").set_input_files([str(archivo1)])
+app.wait_for_timeout(1200)
+ir_al_tope(frame)
+capturar_paso(app, "archivo_seleccionado", paso_excel=3)
+texto_pantalla = frame.locator("body").inner_text()
+assert "CLIENTE_ENCARGO_QA_001.txt" in texto_pantalla, f"El archivo deberia aparecer en la lista: {texto_pantalla!r}"
+assert "1 archivo" in texto_pantalla, f"Se esperaba el contador en 1 archivo: {texto_pantalla!r}"
+''')
+
+
+# DEFECTO REAL CONFIRMADO 15/10/2026 (RF-04, destino FTP): se
+# reinvestigo a pedido del usuario con archivos REALES (no dummy de
+# tempfile) de C:\\Users\\dcaba_dw\\Documents\\docs\\ para descartar
+# que el problema fuera el archivo de prueba. Confirmado que el
+# filtro de extension SI funciona bien (.pdf devuelve HTTP 400 claro:
+# "extension no permitida, validas: .txt, .dat"), pero con un .txt con
+# CONTENIDO REAL (no vacio) el servidor FTP de destino SIEMPRE
+# rechaza con el mismo error, sin importar el archivo:
+# {"statusCode":500,"mensaje":"Error al procesar la solicitud.",
+# "detalle":"The remote server returned an error: (553) File name not
+# allowed."} - probado con 2 archivos .txt distintos (contenido y
+# nombre), mismo resultado exacto. Es un defecto real de
+# infraestructura del destino FTP, no de datos/nombre de archivo. El
+# CP queda escrito con el resultado esperado ORIGINAL (FALLIDO,
+# documentando el defecto).
+add("CP025", "app, frame = abrir_traslado(page, paso_excel=2)", '''
+import tempfile
+tmp_dir = Path(tempfile.mkdtemp(prefix="cp025_"))
+sello = time.strftime("%Y%m%d_%H%M%S")
+archivo1 = tmp_dir / f"CLIENTE_ENCARGO_QA_CP025_{sello}.txt"
+archivo1.write_text("Archivo de prueba QA - CP025", encoding="utf-8")
+frame.locator("input[type=\\'file\\']").set_input_files([str(archivo1)])
+app.wait_for_timeout(1200)
+ir_al_tope(frame)
+capturar_paso(app, "archivo_listo_para_transferir", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Transferir", re.I)).click()
+app.wait_for_timeout(2500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_transferido", paso_excel=4, timeout_ms=8000)
+assert "transfir" in mensaje.lower(), f"DEFECTO REAL: se esperaba confirmacion de transferencia, pero el sistema devuelve: {mensaje!r}"
+assert "1" in mensaje, f"Se esperaba que el mensaje mencione 1 archivo: {mensaje!r}"
+''')
+
+
+# MISMO DEFECTO que CP025 (ver nota arriba) - confirmado con 2
+# archivos a la vez.
+add("CP026", "app, frame = abrir_traslado(page, paso_excel=2)", '''
+import tempfile
+tmp_dir = Path(tempfile.mkdtemp(prefix="cp026_"))
+archivo1 = tmp_dir / "CLIENTE_ENCARGO_QA_CP026_A.txt"
+archivo1.write_text("Archivo de prueba QA - CP026 A", encoding="utf-8")
+archivo2 = tmp_dir / "CLIENTE_ENCARGO_QA_CP026_B.txt"
+archivo2.write_text("Archivo de prueba QA - CP026 B", encoding="utf-8")
+frame.locator("input[type=\\'file\\']").set_input_files([str(archivo1), str(archivo2)])
+app.wait_for_timeout(1200)
+ir_al_tope(frame)
+capturar_paso(app, "archivos_listos_para_transferir", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Transferir", re.I)).click()
+app.wait_for_timeout(2500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_transferido", paso_excel=4, timeout_ms=8000)
+assert "transfir" in mensaje.lower(), f"DEFECTO REAL (mismo que CP025): se esperaba confirmacion de transferencia, pero el sistema devuelve: {mensaje!r}"
+assert "2" in mensaje, f"Se esperaba que el mensaje mencione 2 archivos: {mensaje!r}"
+''')
+
+
+# BLOQUEADO 14/10/2026 (ver memoria del proyecto): el ambiente actual
+# devuelve "Error de Servicio" / HTTP 500 / FTP 553 "File name not
+# allowed" para CUALQUIER transferencia real (confirmado con un
+# archivo de prueba generico) - gap de infraestructura del destino
+# FTP, no de datos SQL (coincide con la propia precondicion de CP023:
+# "el directorio de destino... lo da de alta Infraestructura y no se
+# resuelve por SQL"). Por eso CP024 (que SI espera ese error) resulto
+# facil de reproducir con el ambiente tal cual esta, mientras que
+# CP025/CP026 (que esperan EXITO) quedan bloqueados hasta que
+# Infraestructura habilite el destino real.
+add("CP024", "app, frame = abrir_traslado(page, paso_excel=2)", '''
+import tempfile
+tmp_dir = Path(tempfile.mkdtemp(prefix="cp024_"))
+archivo1 = tmp_dir / "CLIENTE_ENCARGO_QA_CP024.txt"
+archivo1.write_text("Archivo de prueba QA - CP024", encoding="utf-8")
+frame.locator("input[type=\\'file\\']").set_input_files([str(archivo1)])
+app.wait_for_timeout(1200)
+ir_al_tope(frame)
+capturar_paso(app, "archivo_listo_para_transferir", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Transferir", re.I)).click()
+app.wait_for_timeout(2500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_error_transferencia", paso_excel=4, timeout_ms=8000)
+assert "error" in mensaje.lower(), f"Se esperaba que el sistema informe un error: {mensaje!r}"
+boton_cerrar_error = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S)).first.get_by_role("button", name=re.compile(r"^Cerrar$", re.I))
+if boton_cerrar_error.count():
+    boton_cerrar_error.first.click()
+    app.wait_for_timeout(500)
+texto_final = frame.locator("body").inner_text()
+assert "CLIENTE_ENCARGO_QA_CP024.txt" in texto_final, "El archivo NO debio desaparecer de la lista (la transferencia no se completo)"
+''')
+
+
+add("CP027", "app, frame = abrir_traslado(page, paso_excel=2)", '''
+boton_transferir = frame.get_by_role("button", name=re.compile(r"Transferir", re.I))
+assert boton_transferir.is_enabled(), "El boton Transferir debe permanecer habilitado incluso sin seleccion"
+capturar_paso(app, "sin_archivos_seleccionados", paso_excel=3)
+boton_transferir.click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_sin_seleccion", paso_excel=4, timeout_ms=5000)
+assert "no se seleccionaron archivos" in mensaje.lower(), f"Se esperaba el mensaje de sin seleccion: {mensaje!r}"
+''')
+
+
+# ============================================================================
+# RF-05 Encargos de Cobranza (app-lisafi). Ant-design. Combo Encargo
+# (indice 0) muestra SOLO la descripcion, SIN codigo (ej. "PLUZ
+# PROTECCION", no "0002 - PLUZ PROTECCION" como en otras pantallas) -
+# filtrar por el nombre, no por el codigo. Inputs confirmados por id:
+# numeroCliente, apellidos, nombre, numeroDocumento, telefono, rol,
+# afiliadosDesde/Hasta, desafDesde/Hasta, regDesde/Hasta (type=date).
+#
+# HALLAZGO IMPORTANTE (14/10/2026): el endpoint real de busqueda es
+# ObtenerAfiliadosVenta. Se probo primero con el cliente 219761
+# (corr_afiliado=2 clonado por SQL directo sobre `afiliados`, mismo
+# patron que RF-01) y NO aparecio en los resultados, pese a existir
+# confirmado con SELECT. En cambio el cliente 926226 (corr_afiliado=3,
+# titular creado por la UI REAL en CP003/CP007) SI aparecio
+# correctamente. Conclusion: RF-05 probablemente lee de una tabla
+# replicada (afiliados_ofi, mencionada en el ET como destino de
+# RegistrarTitular/ModificarTitular "por cada oficina vigente") que un
+# INSERT/UPDATE directo sobre `afiliados` NUNCA puebla - un gap de
+# tabla secundaria, no de datos en si. Por eso TODOS los casos de
+# RF-05 que necesiten un afiliado real usan 926226 (dato organico ya
+# generado por la UI), evitando crear mas fixtures SQL nuevos para
+# este RF.
+# ============================================================================
+
+add("CP028", "app, frame = abrir_encargos_cobranza(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(300)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+frame.locator("#numeroCliente").fill("926226")
+frame.locator("#afiliadosDesde").fill("2000-01-01")
+frame.locator("#afiliadosHasta").fill("2026-12-31")
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(2500)
+ir_al_tope(frame)
+capturar_paso(app, "resultado_busqueda", paso_excel=4)
+texto_grilla = frame.locator("tbody").inner_text()
+assert "926226" in texto_grilla, f"Se esperaba ver al cliente 926226 en los resultados: {texto_grilla!r}"
+assert "GARCIA PEREZ" in texto_grilla, f"Se esperaba el nombre del afiliado: {texto_grilla!r}"
+''')
+
+
+# Confirmado en vivo: Buscar con solo el Encargo (sin ningun otro
+# filtro) muestra una CONFIRMACION (no un simple aviso) antes de
+# ejecutar la consulta. Se responde Cancelar para no disparar una
+# consulta real sin filtros (podria ser lenta/pesada sobre miles de
+# afiliados, segun el propio mensaje).
+add("CP029", "app, frame = abrir_encargos_cobranza(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(300)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+capturar_paso(app, "sin_filtros", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(1200)
+dialogo = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+dialogo.first.wait_for(state="visible", timeout=5000)
+mensaje = dialogo.first.inner_text()
+capturar_paso(app, "advertencia_sin_filtros", paso_excel=4)
+assert "no ingres" in mensaje.lower() and "filtro" in mensaje.lower(), f"Se esperaba la advertencia de busqueda sin filtros: {mensaje!r}"
+assert "demorar" in mensaje.lower() or "demora" in mensaje.lower(), f"Se esperaba que la advertencia mencione la posible demora: {mensaje!r}"
+boton_cancelar = dialogo.first.get_by_role("button", name=re.compile(r"Cancelar", re.I))
+if boton_cancelar.count():
+    boton_cancelar.first.click()
+    app.wait_for_timeout(500)
+''')
+
+
+# Nivel Promotor (indice 4) requiere Estado (indice 2) seleccionado
+# ANTES para habilitar el campo Rol (confirmado en vivo: el input #rol
+# queda disabled con tooltip "Seleccione un Estado para habilitar este
+# filtro" hasta elegir ambos, Nivel=LDS Y Estado - no alcanza con
+# Nivel solo, contra lo que sugeria la precondicion de la matriz).
+#
+# CORRECCION 15/10/2026: el rol CCQ de la matriz (y Estado=Afiliado)
+# NUNCA trae resultados en este ambiente - confirmado que Nivel=
+# Especial + Estado=Afiliado da CERO resultados para LOS 4 ENCARGOS
+# reales del combo (PLUZ PROTECCION/SALUD/EMERGENCIA/SEPELIO), incluso
+# SIN filtrar por Rol (respuesta cruda del API: "[]"). El dato de la
+# matriz simplemente no existe en este ambiente para Estado=Afiliado.
+# Probando con Estado=Desafiliado (que SI requiere ademas el rango
+# Desafiliados Desde/Hasta, igual que CP032) aparecen resultados
+# reales para PLUZ PROTECCION y PLUZ SEPELIO - **rol SRA, real y con
+# muchos afiliados desafiliados en PLUZ PROTECCION**, confirmado en
+# vivo filtrando por el y obteniendo SOLO filas con ese rol. CP030
+# reescrito para demostrar el filtro REALMENTE aplicado (no solo
+# "aceptado sin rechazo" como antes), con Estado=Desafiliado y Rol=SRA
+# en vez del CCQ/Afiliado original de la matriz (que no tiene data
+# real en este ambiente).
+add("CP030", "app, frame = abrir_encargos_cobranza(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(300)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+combos = frame.locator(".ant-select-selector")
+combos.nth(2).click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Desafiliado").first.click()
+app.wait_for_timeout(500)
+combos.nth(4).click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="LDS").first.click()
+app.wait_for_timeout(500)
+frame.locator("#afiliadosDesde").fill("2000-01-01")
+frame.locator("#afiliadosHasta").fill("2026-10-15")
+frame.locator("#desafDesde").fill("2000-01-01")
+frame.locator("#desafHasta").fill("2026-10-15")
+campo_rol = frame.locator("#rol")
+assert campo_rol.get_attribute("disabled") is None, "El campo Rol deberia habilitarse tras elegir Nivel Especial y Estado"
+campo_rol.fill("SRA")
+capturar_paso(app, "filtro_nivel_especial_rol", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(3000)
+texto_grilla = frame.locator("tbody").inner_text()
+assert "No hay datos" not in texto_grilla, f"Se esperaban resultados reales del rol SRA: {texto_grilla!r}"
+filas = [l for l in texto_grilla.splitlines() if l.strip() and "\\t" in l]
+assert filas, f"No se pudo leer ninguna fila de la grilla: {texto_grilla!r}"
+for fila in filas:
+    assert "SRA" in fila, f"Se esperaba que TODAS las filas sean del rol SRA (filtro realmente aplicado): {fila!r}"
+capturar_paso(app, "filtro_aplicado_resultados", paso_excel=4)
+''')
+
+
+# Confirmado en vivo: la validacion de Rol inexistente usa un POPOVER
+# propio (clase "cdk-overlay-popover", boton "button.conf-btn-ok"),
+# NO el patron .ant-modal/nz-modal-container del resto de la app -
+# necesita click(force=True) porque un wrapper overlay intercepta el
+# click normal aunque el boton este visible/enabled.
+add("CP031", "app, frame = abrir_encargos_cobranza(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(300)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+combos = frame.locator(".ant-select-selector")
+combos.nth(2).click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Afiliado").first.click()
+app.wait_for_timeout(500)
+combos.nth(4).click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="LDS").first.click()
+app.wait_for_timeout(500)
+campo_rol = frame.locator("#rol")
+campo_rol.fill("XXXX")
+campo_rol.blur()
+app.wait_for_timeout(1500)
+popover = frame.locator(".cdk-overlay-popover").filter(has_text=re.compile(".", re.S))
+popover.first.wait_for(state="visible", timeout=5000)
+mensaje = popover.first.inner_text()
+capturar_paso(app, "mensaje_rol_inexistente", paso_excel=3)
+assert "no existe" in mensaje.lower(), f"Se esperaba el aviso de rol inexistente: {mensaje!r}"
+assert "xxxx" in mensaje.lower(), f"Se esperaba que el mensaje mencione el rol ingresado: {mensaje!r}"
+frame.locator("button.conf-btn-ok").first.click(force=True)
+app.wait_for_timeout(800)
+valor_final = campo_rol.input_value()
+assert valor_final.strip() == "", f"El campo Rol deberia quedar limpio: {valor_final!r}"
+''')
+
+
+# RESUELTO 15/10/2026: el bloqueo real NO era de datos - era que el
+# campo "Afiliados Desde/Hasta" es OBLIGATORIO para que la busqueda
+# devuelva CUALQUIER resultado, incluso con Estado=Desafiliado
+# seleccionado (confirmado: Estado solo, sin fechas, da 0; Estado +
+# SOLO Desafiliados Desde/Hasta (como sugeria la matriz) tambien da 0;
+# Estado + AMBOS rangos de fecha llenos da resultados reales - probado
+# con rango amplio 2000-2026 -> 33.199 registros, y acotando
+# Desafiliados Desde/Hasta a mayo/2023 -> 504 registros, confirmando
+# que el filtro de fecha SI funciona). Encargo 0019 (el que pedia la
+# matriz) sigue sin dar NINGUN resultado ni sin filtros - se usa 0002
+# en su lugar, igual que el resto de RF-05.
+add("CP032", "app, frame = abrir_encargos_cobranza(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+combos = frame.locator(".ant-select-selector")
+combos.nth(2).click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Desafiliado").first.click()
+app.wait_for_timeout(500)
+frame.locator("#afiliadosDesde").fill("2000-01-01")
+frame.locator("#afiliadosHasta").fill("2026-10-15")
+frame.locator("#desafDesde").fill("2023-05-01")
+frame.locator("#desafHasta").fill("2023-05-31")
+capturar_paso(app, "filtro_desafiliado_con_rango", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(3000)
+ir_al_tope(frame)
+capturar_paso(app, "resultados_desafiliados_mayo_2023", paso_excel=4)
+texto_grilla = frame.locator("tbody").inner_text()
+assert "No hay datos" not in texto_grilla, f"Se esperaban resultados de afiliados desafiliados en el rango: {texto_grilla!r}"
+assert "DESAFILIADO" in texto_grilla, f"Se esperaba que los resultados muestren estado Desafiliado: {texto_grilla!r}"
+''')
+
+
+# El input[type=date] nativo RECHAZA fill() con una fecha invalida
+# como "2026-02-31" (Playwright lanza "Malformed value" antes de
+# siquiera tocar la app) - hay que usar click()+press_sequentially()
+# tecleando los digitos en el orden que muestra el placeholder
+# dd/mm/aaaa (31 02 2026), igual que el gotcha ya documentado de
+# inputs de fecha nativos en otros proyectos.
+add("CP033", "app, frame = abrir_encargos_cobranza(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(300)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+combos = frame.locator(".ant-select-selector")
+combos.nth(2).click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Desafiliado").first.click()
+app.wait_for_timeout(500)
+desaf_desde = frame.locator("#desafDesde")
+desaf_desde.click()
+desaf_desde.press_sequentially("31022026")
+app.wait_for_timeout(500)
+desaf_desde.blur()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_fecha_invalida", paso_excel=3, timeout_ms=5000)
+assert "desafiliados desde" in mensaje.lower(), f"Se esperaba que el mensaje mencione el campo: {mensaje!r}"
+assert "no es una fecha calendario" in mensaje.lower(), f"Se esperaba el mensaje de fecha invalida: {mensaje!r}"
+app.wait_for_timeout(500)
+valor_final = desaf_desde.input_value()
+assert valor_final.strip() == "", f"El campo Desafiliados Desde deberia quedar limpio: {valor_final!r}"
+''')
+
+
+# Reusa la busqueda de CP028 (cliente 926226, con resultados reales
+# confirmados). Archivo real descargado: afiliados_venta_lisafi.xlsx.
+add("CP034", "app, frame = abrir_encargos_cobranza(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(300)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+frame.locator("#numeroCliente").fill("926226")
+frame.locator("#afiliadosDesde").fill("2000-01-01")
+frame.locator("#afiliadosHasta").fill("2026-12-31")
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(2500)
+ir_al_tope(frame)
+capturar_paso(app, "resultados_para_exportar", paso_excel=3)
+boton_exportar = frame.get_by_role("button", name=re.compile(r"Exportar", re.I))
+assert boton_exportar.is_enabled(), "El boton Exportar a Excel deberia estar habilitado con resultados"
+with app.expect_download(timeout=15000) as descarga_info:
+    boton_exportar.click()
+descarga = descarga_info.value
+assert descarga.suggested_filename.lower().endswith(".xlsx"), f"Se esperaba un archivo .xlsx descargado: {descarga.suggested_filename!r}"
+capturar_paso(app, "archivo_exportado", paso_excel=4)
+''')
+
+
+add("CP035", "app, frame = abrir_encargos_cobranza(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+app.wait_for_timeout(300)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+frame.locator("#numeroCliente").fill("926226")
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(2500)
+capturar_paso(app, "filtros_con_resultados", paso_excel=3)
+frame.locator("button", has_text="Nuevo").click()
+app.wait_for_timeout(1000)
+ir_al_tope(frame)
+capturar_paso(app, "filtros_limpios", paso_excel=4)
+assert frame.locator("#numeroCliente").input_value().strip() == "", "N. de Cliente deberia quedar vacio"
+boton_exportar = frame.get_by_role("button", name=re.compile(r"Exportar", re.I))
+assert not boton_exportar.is_enabled(), "Exportar a Excel deberia quedar deshabilitado tras Nuevo"
+''')
+
+
+# ============================================================================
+# RF-06 Promocion de Afiliados (app-promocion). Ant-design. Mes es el
+# unico combo (.ant-select-selector, 1 solo). Campos sin name/id
+# directo (posicion): Ano (number), Descripcion (text), Fecha de
+# Activacion/Desactivacion (date). Grilla "Promociones Registradas" ya
+# tiene 1 fila real (200010 / Octubre-00), sin necesitar SQL para
+# CP036.
+# ============================================================================
+
+add("CP036", "app, frame = abrir_promocion(page, paso_excel=2)", '''
+ir_al_tope(frame)
+capturar_paso(app, "grilla_promociones", paso_excel=3)
+filas = filas_tabla(frame)
+assert filas.count() > 0, "Se esperaba al menos 1 promocion registrada en la grilla"
+texto_grilla = frame.locator("tbody").inner_text()
+assert "2000-10" in texto_grilla, f"Se esperaba ver la promocion 2000-10: {texto_grilla!r}"
+''')
+
+
+# DEFECTO REAL CONFIRMADO 14/10/2026: RegistrarPromocion devuelve
+# SIEMPRE HTTP 500 vacio ({"statusCode":500,"mensaje":"Error al
+# registrar la promocion.","detalle":""}), probado con 2 combinaciones
+# de Mes/Ano/fechas distintas (Marzo/2027 y Julio/2027), sin ningun
+# detalle de causa. No es un problema de datos de prueba - el
+# formulario se completa y confirma correctamente, el fallo es del
+# backend. Este CP se deja ESCRITO CON EL RESULTADO ESPERADO ORIGINAL
+# (que una promocion valida SI se registra) para que la corrida
+# documente el defecto real en vez de ocultarlo validando el error
+# como si fuera el comportamiento correcto.
+add("CP037", "app, frame = abrir_promocion(page, paso_excel=2)", '''
+frame.locator("button", has_text="Ingresar").click()
+app.wait_for_timeout(800)
+combo = frame.locator(".ant-select-selector")
+combo.first.click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Marzo").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2027")
+inputs.nth(2).fill("PROMO VERANO 2027")
+inputs.nth(3).fill("2027-02-15")
+inputs.nth(4).fill("2027-03-31")
+capturar_paso(app, "datos_completos", paso_excel=3)
+frame.locator("button", has_text="Aceptar").click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "resultado_registro", paso_excel=4, timeout_ms=5000)
+assert "registrada correctamente" in mensaje.lower(), f"DEFECTO REAL: se esperaba que la promocion se registrara correctamente, pero el sistema devuelve: {mensaje!r}"
+''')
+
+
+# MISMO DEFECTO que CP037, confirmado con dato duplicado real
+# (202703/Marzo-27 sembrado por SQL bloque 6.1): el sistema NO llega a
+# distinguir "duplicado" de "valido" porque RegistrarPromocion falla
+# con el mismo HTTP 500 generico para CUALQUIER intento de registro -
+# confirma que el defecto es sistemico (toda la operacion de registrar
+# esta rota), no especifico de la validacion de ano-mes duplicado.
+add("CP038", "app, frame = abrir_promocion(page, paso_excel=2)", '''
+frame.locator("button", has_text="Ingresar").click()
+app.wait_for_timeout(800)
+combo = frame.locator(".ant-select-selector")
+combo.first.click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Marzo").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2027")
+inputs.nth(2).fill("PROMO DUPLICADA")
+inputs.nth(3).fill("2027-02-15")
+inputs.nth(4).fill("2027-03-31")
+capturar_paso(app, "ano_mes_duplicado", paso_excel=3)
+frame.locator("button", has_text="Aceptar").click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_rechazo", paso_excel=4, timeout_ms=5000)
+assert "ya existe una promoci" in mensaje.lower() and "a\\u00f1o-mes" in mensaje.lower(), f"DEFECTO REAL (mismo que CP037): se esperaba el rechazo especifico por ano-mes duplicado, pero el sistema devuelve el mismo error generico de registro: {mensaje!r}"
+''')
+
+
+# A diferencia de CP037/CP038, esta validacion es del lado del
+# CLIENTE (se dispara antes de llamar al backend roto) - confirmado en
+# vivo que SI funciona correctamente pese al defecto de
+# RegistrarPromocion.
+add("CP039", "app, frame = abrir_promocion(page, paso_excel=2)", '''
+frame.locator("button", has_text="Ingresar").click()
+app.wait_for_timeout(800)
+combo = frame.locator(".ant-select-selector")
+combo.first.click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Mayo").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2027")
+inputs.nth(2).fill("PROMO FECHAS INVALIDAS")
+inputs.nth(3).fill("2027-03-31")
+inputs.nth(4).fill("2027-02-15")
+capturar_paso(app, "fechas_invertidas", paso_excel=3)
+frame.locator("button", has_text="Aceptar").click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_fechas_invalidas", paso_excel=4, timeout_ms=5000)
+assert "fecha de desactivaci" in mensaje.lower() and "mayor a la fecha de activaci" in mensaje.lower(), f"Se esperaba el rechazo por fechas inconsistentes: {mensaje!r}"
+''')
+
+
+# CP040/CP041 (Modificar/Eliminar) NUNCA se escribieron en IT1 porque la
+# grilla ObtenerPromociones no reflejaba ninguna promocion sembrada por
+# SQL (misterio de conexion/tabla, ver memoria del proyecto) - RESUELTO
+# en IT2 (16/10/2026): confirmado que el servicio real ya refleja
+# cualquier promocion registrada vía la propia UI (RegistrarPromocion
+# arreglado tambien). Por eso cada caso REGISTRA SU PROPIA promocion
+# fresca en vez de depender del INSERT SQL en la tabla `tabla` (que la
+# investigacion de IT1 ya determino que el backend real NO lee).
+add("CP040", "app, frame = abrir_promocion(page, paso_excel=2)", '''
+frame.locator("button", has_text="Ingresar").click()
+app.wait_for_timeout(800)
+combo = frame.locator(".ant-select-selector")
+combo.first.click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Julio").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2029")
+inputs.nth(2).fill("PROMO CP040 ORIGINAL")
+inputs.nth(3).fill("2029-06-15")
+inputs.nth(4).fill("2029-07-31")
+capturar_paso(app, "promocion_a_modificar_registrada", paso_excel=1)
+frame.locator("button", has_text="Aceptar").click()
+app.wait_for_timeout(1500)
+capturar_mensaje_dialogo(app, frame, "registro_previo_ok", timeout_ms=5000)
+
+app.reload()
+app.wait_for_timeout(2500)
+fila = frame.locator("tbody tr").filter(has_text="PROMO CP040 ORIGINAL")
+assert fila.count() == 1, f"Se esperaba encontrar la promocion recien registrada en la grilla: {frame.locator('tbody').inner_text()!r}"
+fila.first.click()
+app.wait_for_timeout(500)
+frame.locator("button", has_text="Modificar").click()
+app.wait_for_timeout(800)
+capturar_paso(app, "formulario_modificar_cargado", paso_excel=1)
+
+combo_mes = frame.locator(".ant-select-selector").first
+assert "disabled" in (combo_mes.get_attribute("class") or "") or combo_mes.locator("input").get_attribute("disabled") is not None, "Se esperaba que el combo Mes quede bloqueado en modo Modificar"
+inputs2 = frame.locator("input:visible")
+campo_anio = inputs2.nth(1)
+assert campo_anio.get_attribute("disabled") is not None or campo_anio.get_attribute("readonly") is not None, "Se esperaba que el campo Año quede bloqueado en modo Modificar"
+
+campo_desc = inputs2.nth(2)
+campo_desc.fill("")
+campo_desc.fill("PROMO CP040 MODIFICADA")
+capturar_paso(app, "descripcion_modificada", paso_excel=2)
+frame.locator("button", has_text="Aceptar").click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "resultado_modificacion", paso_excel=3, timeout_ms=5000)
+assert "modificada correctamente" in mensaje.lower() or "actualizada correctamente" in mensaje.lower(), f"Se esperaba confirmacion de modificacion exitosa: {mensaje!r}"
+
+app.reload()
+app.wait_for_timeout(2500)
+texto_grilla = frame.locator("tbody").inner_text()
+assert "PROMO CP040 MODIFICADA" in texto_grilla, f"Se esperaba ver la descripcion actualizada en la grilla: {texto_grilla!r}"
+assert "2029-07" in texto_grilla, f"Se esperaba que Mes/Año (2029-07) no hayan cambiado: {texto_grilla!r}"
+''')
+
+
+add("CP041", "app, frame = abrir_promocion(page, paso_excel=2)", '''
+frame.locator("button", has_text="Ingresar").click()
+app.wait_for_timeout(800)
+combo = frame.locator(".ant-select-selector")
+combo.first.click()
+app.wait_for_timeout(600)
+frame.locator(".cdk-overlay-container .ant-select-item-option").filter(has_text="Agosto").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2029")
+inputs.nth(2).fill("PROMO CP041 A ELIMINAR")
+inputs.nth(3).fill("2029-07-15")
+inputs.nth(4).fill("2029-08-31")
+capturar_paso(app, "promocion_a_eliminar_registrada", paso_excel=1)
+frame.locator("button", has_text="Aceptar").click()
+app.wait_for_timeout(1500)
+capturar_mensaje_dialogo(app, frame, "registro_previo_ok", timeout_ms=5000)
+
+app.reload()
+app.wait_for_timeout(2500)
+fila = frame.locator("tbody tr").filter(has_text="PROMO CP041 A ELIMINAR")
+assert fila.count() == 1, f"Se esperaba encontrar la promocion recien registrada en la grilla: {frame.locator('tbody').inner_text()!r}"
+fila.first.click()
+app.wait_for_timeout(500)
+capturar_paso(app, "fila_seleccionada", paso_excel=1)
+frame.locator("button", has_text="Eliminar").click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "confirmacion_eliminar", paso_excel=2, timeout_ms=5000)
+assert "eliminar" in mensaje.lower() and "2029-08" in mensaje, f"Se esperaba el dialogo de confirmacion de eliminacion con el año-mes: {mensaje!r}"
+
+dialogo = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+dialogo.first.get_by_role("button", name=re.compile(r"^\\s*(Aceptar|S[ií])\\s*$", re.I)).first.click()
+# El toast de exito (ant-design/nz-message) se autodesvanece en pocos
+# segundos (mismo gotcha ya visto en otros proyectos) - no alcanza con
+# una pausa fija antes de leerlo. La prueba REAL de que la eliminacion
+# funciono es que la fila deje de existir en la grilla tras recargar
+# (ver abajo), mas confiable que perseguir el toast fugaz.
+capturar_paso(app, "tras_confirmar_eliminacion", paso_excel=2)
+
+app.reload()
+app.wait_for_timeout(2500)
+texto_grilla = frame.locator("tbody").inner_text()
+assert "PROMO CP041 A ELIMINAR" not in texto_grilla, f"La promocion eliminada no deberia seguir en la grilla: {texto_grilla!r}"
+''')
+
+
+# ============================================================================
+# RF-07 Afiliaciones por Promotores Especiales (app-afiliacion-especial).
+# Ant-design. Encargo (indice 0, unico combo) SI muestra codigo+nombre
+# (ej. "0002 - PLUZ PROTECCION", a diferencia de RF-05). Checkboxes
+# "Afiliados Desde" (marcado por defecto) y "Pagos Desde" (desmarcado)
+# habilitan sus respectivos pares de fecha. Los campos de fecha son
+# nz-date-picker (NO input nativo) - fill()/press_sequentially()
+# actualizan el DOM visualmente pero NO el FormControl de Angular: el
+# campo "Hasta" queda vacio al perder el foco. NO es un defecto de la
+# app (descartado en vivo 15/10/2026 tras que el usuario confirmara
+# que buscando a mano SI encuentra data con un rango completo) - hay
+# que seleccionar la fecha haciendo CLIC en el calendario real (año ->
+# mes -> dia), nunca tipeando. Usar el helper
+# seleccionar_fecha_calendario(app, frame, input_locator, dia, mes,
+# anio) para los 2 pares de fecha de esta pantalla (Afiliados y Pagos).
+# ============================================================================
+
+add("CP042", "app, frame = abrir_afiliacion_especial(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="0002").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+desde = inputs.nth(4)
+hasta = inputs.nth(5)
+seleccionar_fecha_calendario(app, frame, desde, 1, 1, 2000)
+seleccionar_fecha_calendario(app, frame, hasta, 1, 10, 2026)
+frame.locator("body").click()
+app.wait_for_timeout(500)
+valor_desde, valor_hasta = desde.input_value(), hasta.input_value()
+assert valor_desde.strip() != "", f"El campo Afiliados Desde deberia conservar la fecha seleccionada: {valor_desde!r}"
+assert valor_hasta.strip() != "", f"El campo Afiliados Hasta deberia conservar la fecha seleccionada: {valor_hasta!r}"
+capturar_paso(app, "rango_de_fechas_completado", paso_excel=3)
+with app.expect_response(lambda r: "ObtenerAfiliacionesPromotorEspecial" in r.url, timeout=30000):
+    frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(1000)
+texto_grilla = frame.locator("tbody").inner_text()
+assert "No hay datos" not in texto_grilla, f"Se esperaban resultados de afiliaciones de nivel especial: {texto_grilla!r}"
+''')
+
+
+# No depende del rango de fechas de CP042 - se desmarca "Afiliados
+# Desde" para no necesitar completar fechas, la validacion de Rol
+# Personal se dispara al presionar Buscar (no al blur, a diferencia de
+# RF-05/CP031).
+add("CP044", "app, frame = abrir_afiliacion_especial(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="0002").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+rol = inputs.nth(2)
+rol.fill("ZZQA9")
+checkbox_afiliados = inputs.nth(3)
+if checkbox_afiliados.is_checked():
+    checkbox_afiliados.uncheck(force=True)
+app.wait_for_timeout(500)
+capturar_paso(app, "rol_inexistente", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(2000)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_rol_inexistente", paso_excel=4, timeout_ms=5000)
+assert "no existe" in mensaje.lower(), f"Se esperaba el aviso de rol inexistente: {mensaje!r}"
+app.wait_for_timeout(500)
+valor_final = rol.input_value()
+assert valor_final.strip() == "", f"El campo Rol Personal deberia quedar limpio: {valor_final!r}"
+''')
+
+
+# Confirmado en vivo 15/10/2026: filtrando por Rol Personal MIGP (72
+# afiliaciones reales de ese promotor en el Encargo 0002) la grilla
+# muestra SOLO filas de "MARIA ISABEL GOMEZ PARRAGA" (columna
+# Promotor) - a diferencia de CP042 (sin filtro de rol), que mezcla
+# varios promotores distintos.
+add("CP043", "app, frame = abrir_afiliacion_especial(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="0002").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+rol = inputs.nth(2)
+rol.fill("MIGP")
+desde, hasta = inputs.nth(4), inputs.nth(5)
+seleccionar_fecha_calendario(app, frame, desde, 1, 1, 2000)
+seleccionar_fecha_calendario(app, frame, hasta, 1, 10, 2026)
+frame.locator("body").click()
+app.wait_for_timeout(500)
+capturar_paso(app, "filtro_rol_migp", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(15000)
+texto_grilla = frame.locator("tbody").inner_text()
+assert "No hay datos" not in texto_grilla, f"Se esperaban resultados del promotor MIGP: {texto_grilla!r}"
+filas = [l for l in texto_grilla.splitlines() if l.strip() and "\\t" in l]
+assert filas, f"No se pudo leer ninguna fila de la grilla: {texto_grilla!r}"
+for fila in filas:
+    assert "GOMEZ P" in fila.upper(), f"Se esperaba que TODAS las filas sean del promotor de rol MIGP: {fila!r}"
+''')
+
+
+# Columnas confirmadas en vivo (thead): Cliente/Nombre/Promotor/Fecha
+# Afiliacion/Fecha Pago - el filtro de Pagos Desde/Hasta actua sobre
+# la ULTIMA columna (Fecha Pago), no sobre Fecha Afiliacion.
+add("CP045", "app, frame = abrir_afiliacion_especial(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="0002").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+desde, hasta = inputs.nth(4), inputs.nth(5)
+seleccionar_fecha_calendario(app, frame, desde, 1, 1, 2000)
+seleccionar_fecha_calendario(app, frame, hasta, 1, 10, 2026)
+checkbox_pagos = inputs.nth(6)
+if not checkbox_pagos.is_checked():
+    checkbox_pagos.check(force=True)
+app.wait_for_timeout(500)
+inputs2 = frame.locator("input:visible")
+pagos_desde, pagos_hasta = inputs2.nth(7), inputs2.nth(8)
+seleccionar_fecha_calendario(app, frame, pagos_desde, 1, 1, 2001)
+seleccionar_fecha_calendario(app, frame, pagos_hasta, 31, 12, 2001)
+frame.locator("body").click()
+app.wait_for_timeout(500)
+capturar_paso(app, "filtro_rango_de_pagos", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(15000)
+texto_grilla = frame.locator("tbody").inner_text()
+assert "No hay datos" not in texto_grilla, f"Se esperaban resultados con pago dentro del rango 2001: {texto_grilla!r}"
+filas = [l for l in texto_grilla.splitlines() if l.strip() and "\\t" in l]
+assert filas, f"No se pudo leer ninguna fila de la grilla: {texto_grilla!r}"
+for fila in filas:
+    fecha_pago = fila.split("\\t")[-1].strip()
+    assert fecha_pago.endswith("/2001"), f"Se esperaba que la Fecha de Pago de cada fila caiga en 2001: {fila!r}"
+''')
+
+
+# Confirmado en vivo: tras Buscar, los botones (pagination +
+# Exportar) demoran ~30s en habilitarse del todo (la grilla YA
+# muestra datos a los 15s, pero Exportar sigue disabled un rato mas) -
+# por eso esta espera es mas larga que la de los demas CP de RF-07.
+# El download real se dispara en la pagina POPUP ("app"), no en
+# "page" - expect_download() hay que anclarlo ahi.
+add("CP046", "app, frame = abrir_afiliacion_especial(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="0002").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+desde, hasta = inputs.nth(4), inputs.nth(5)
+seleccionar_fecha_calendario(app, frame, desde, 1, 1, 2000)
+seleccionar_fecha_calendario(app, frame, hasta, 1, 10, 2026)
+frame.locator("body").click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(30000)
+capturar_paso(app, "resultados_antes_de_exportar", paso_excel=3)
+with app.expect_download(timeout=20000) as descarga_info:
+    frame.get_by_role("button", name=re.compile(r"Exportar", re.I)).click()
+descarga = descarga_info.value
+assert descarga.suggested_filename == "AfiliacionesPromotorEspecial.xlsx", f"Nombre de archivo inesperado: {descarga.suggested_filename!r}"
+capturar_paso(app, "archivo_exportado", paso_excel=4)
+''')
+
+
+# Confirmado en vivo: tras una busqueda, el boton "Buscar" se
+# RE-ROTULA a "Nuevo" (mismo boton, no uno nuevo). Clickearlo limpia
+# Rol Personal y AMBOS pares de fecha, deja "Afiliados Desde" marcado
+# (igual que el estado inicial de la pantalla) y "Pagos Desde"
+# desmarcado, y vuelve a deshabilitar "Exportar a Excel".
+add("CP047", "app, frame = abrir_afiliacion_especial(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="0002").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+rol = inputs.nth(2)
+rol.fill("MIGP")
+desde, hasta = inputs.nth(4), inputs.nth(5)
+seleccionar_fecha_calendario(app, frame, desde, 1, 1, 2000)
+seleccionar_fecha_calendario(app, frame, hasta, 1, 10, 2026)
+checkbox_pagos = inputs.nth(6)
+if not checkbox_pagos.is_checked():
+    checkbox_pagos.check(force=True)
+app.wait_for_timeout(500)
+inputs2 = frame.locator("input:visible")
+pagos_desde, pagos_hasta = inputs2.nth(7), inputs2.nth(8)
+seleccionar_fecha_calendario(app, frame, pagos_desde, 1, 1, 2001)
+seleccionar_fecha_calendario(app, frame, pagos_hasta, 31, 12, 2001)
+frame.locator("body").click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(15000)
+capturar_paso(app, "filtros_antes_de_limpiar", paso_excel=3)
+frame.get_by_role("button", name=re.compile(r"Nuevo", re.I)).click()
+app.wait_for_timeout(1000)
+inputs3 = frame.locator("input:visible")
+assert inputs3.nth(2).input_value().strip() == "", "El Rol Personal deberia quedar vacio tras Nuevo"
+assert inputs3.nth(3).is_checked(), "Afiliados Desde deberia quedar marcado tras Nuevo"
+assert inputs3.nth(4).input_value().strip() == "", "Afiliados Desde (fecha) deberia quedar vacia tras Nuevo"
+assert inputs3.nth(5).input_value().strip() == "", "Afiliados Hasta (fecha) deberia quedar vacia tras Nuevo"
+assert not inputs3.nth(6).is_checked(), "Pagos Desde deberia quedar DESmarcado tras Nuevo"
+assert inputs3.nth(7).input_value().strip() == "", "Pagos Desde (fecha) deberia quedar vacia tras Nuevo"
+assert inputs3.nth(8).input_value().strip() == "", "Pagos Hasta (fecha) deberia quedar vacia tras Nuevo"
+boton_exportar = frame.get_by_role("button", name=re.compile(r"Exportar", re.I))
+assert boton_exportar.is_disabled(), "El boton Exportar a Excel deberia quedar deshabilitado tras Nuevo"
+capturar_paso(app, "filtros_limpios", paso_excel=4)
+''')
+
+
+# ============================================================================
+# RF-08 Resumen de Afiliacion (app-resumen-afiliacion). Ant-design,
+# PERO a diferencia de RF-07, los campos de rango de fechas (Proceso
+# Desde/Hasta) SI son input[type=date] NATIVOS (confirmado en vivo) -
+# fill() funciona normal, sin el defecto de nz-date-picker de RF-07.
+# Combo Encargo (unico) muestra SOLO el nombre, sin codigo (igual que
+# RF-05).
+# ============================================================================
+
+add("CP048", "app, frame = abrir_resumen_afiliacion(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2001-01-01")
+inputs.nth(2).fill("2001-06-30")
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(3000)
+ir_al_tope(frame)
+capturar_paso(app, "resumen_por_rango", paso_excel=3)
+texto_grilla = frame.locator("tbody").inner_text()
+for mes in ["Enero 2001", "Febrero 2001", "Marzo 2001", "Abril 2001", "Mayo 2001", "Junio 2001"]:
+    assert mes in texto_grilla, f"Se esperaba ver {mes} en el resumen: {texto_grilla!r}"
+assert "Total General" in texto_grilla, f"Se esperaba la fila Total General: {texto_grilla!r}"
+''')
+
+
+# input[type=date] nativo rechaza "31/02/2026" solo (igual gotcha que
+# CP033 de RF-05) - usar click()+press_sequentially(), no fill().
+add("CP049", "app, frame = abrir_resumen_afiliacion(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+desde = inputs.nth(1)
+desde.click()
+desde.press_sequentially("02312026")
+desde.blur()
+app.wait_for_timeout(500)
+capturar_paso(app, "fecha_formato_incorrecto", paso_excel=3)
+valor_desde = desde.input_value()
+assert valor_desde.strip() == "", f"El campo Proceso Desde deberia quedar vacio tras una fecha invalida: {valor_desde!r}"
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(1500)
+mensaje = capturar_mensaje_dialogo(app, frame, "mensaje_rango_requerido", paso_excel=4, timeout_ms=5000)
+assert "debe ingresar el rango de fechas" in mensaje.lower(), f"Se esperaba el mensaje de rango requerido: {mensaje!r}"
+''')
+
+
+# Mismo rango de CP048 (6 meses reales de 2001). Suma cada columna
+# numerica de las filas de mes y compara contra la fila Total General.
+add("CP050", "app, frame = abrir_resumen_afiliacion(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2001-01-01")
+inputs.nth(2).fill("2001-06-30")
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(3000)
+ir_al_tope(frame)
+capturar_paso(app, "resumen_con_total_general", paso_excel=3)
+filas = filas_tabla(frame)
+filas_mes = []
+fila_total = None
+for i in range(filas.count()):
+    cols = filas.nth(i).inner_text().split("\\t")
+    if not cols or not cols[0].strip():
+        continue
+    if "Total General" in cols[0]:
+        fila_total = cols
+    else:
+        filas_mes.append(cols)
+assert fila_total is not None, "Se esperaba encontrar la fila Total General"
+assert len(filas_mes) >= 3, f"Se esperaban al menos 3 meses con datos: {len(filas_mes)}"
+num_columnas = len(fila_total)
+for col_idx in range(1, num_columnas):
+    suma_manual = sum(int(fila[col_idx].strip() or 0) for fila in filas_mes if col_idx < len(fila))
+    valor_total = int(fila_total[col_idx].strip() or 0)
+    assert suma_manual == valor_total, f"La columna {col_idx} del Total General ({valor_total}) no coincide con la suma manual de los meses ({suma_manual})"
+''')
+
+
+# Mismo rango de CP048. La columna "Desafiliados Reafiliados" (indice
+# 6) ya tiene datos reales no-cero confirmados en vivo (Enero/2001=9,
+# Marzo=2, Mayo=2) - no hace falta ningun dato de prueba nuevo.
+add("CP051", "app, frame = abrir_resumen_afiliacion(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2001-01-01")
+inputs.nth(2).fill("2001-06-30")
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(3000)
+ir_al_tope(frame)
+capturar_paso(app, "columna_desafiliados_reafiliados", paso_excel=3)
+filas = filas_tabla(frame)
+valores_reafiliados = []
+for i in range(filas.count()):
+    cols = filas.nth(i).inner_text().split("\\t")
+    if not cols or not cols[0].strip() or "Total General" in cols[0]:
+        continue
+    if len(cols) > 6:
+        valores_reafiliados.append(int(cols[6].strip() or 0))
+assert any(v > 0 for v in valores_reafiliados), f"Se esperaba al menos un mes con desafiliados reafiliados > 0: {valores_reafiliados}"
+''')
+
+
+# Mismo rango de CP048. Archivo real confirmado: ResumenAfiliacion_0002.xlsx.
+add("CP052", "app, frame = abrir_resumen_afiliacion(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2001-01-01")
+inputs.nth(2).fill("2001-06-30")
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(3000)
+ir_al_tope(frame)
+capturar_paso(app, "resumen_listo_para_exportar", paso_excel=3)
+boton_exportar = frame.get_by_role("button", name=re.compile(r"Exportar", re.I))
+assert boton_exportar.is_enabled(), "El boton Exportar a Excel deberia estar habilitado con un resumen calculado"
+with app.expect_download(timeout=15000) as descarga_info:
+    boton_exportar.click()
+descarga = descarga_info.value
+assert descarga.suggested_filename.lower().endswith(".xlsx"), f"Se esperaba un archivo .xlsx descargado: {descarga.suggested_filename!r}"
+capturar_paso(app, "archivo_exportado", paso_excel=4)
+''')
+
+
+# Mismo rango de CP048. Confirmado en vivo: Nuevo borra SOLO las
+# fechas - el Encargo seleccionado PERMANECE en pantalla (distinto de
+# Cerrar, que limpia todo).
+add("CP053", "app, frame = abrir_resumen_afiliacion(page, paso_excel=2)", '''
+frame.locator(".ant-select-selector").first.click()
+app.wait_for_timeout(800)
+opciones = frame.locator(".cdk-overlay-container .ant-select-item-option")
+opciones.first.wait_for(state="visible", timeout=10000)
+opciones.filter(has_text="PLUZ PROTECCION").first.click()
+app.wait_for_timeout(500)
+inputs = frame.locator("input:visible")
+inputs.nth(1).fill("2001-01-01")
+inputs.nth(2).fill("2001-06-30")
+frame.get_by_role("button", name=re.compile(r"Buscar", re.I)).click()
+app.wait_for_timeout(3000)
+capturar_paso(app, "resumen_con_filtros", paso_excel=3)
+frame.locator("button", has_text="Nuevo").click()
+app.wait_for_timeout(1000)
+ir_al_tope(frame)
+capturar_paso(app, "filtros_limpios_encargo_permanece", paso_excel=4)
+combo_texto = frame.locator(".ant-select-selector").first.inner_text()
+assert "PLUZ PROTECCION" in combo_texto, f"El Encargo deberia permanecer seleccionado tras Nuevo: {combo_texto!r}"
+inputs_final = frame.locator("input:visible")
+assert inputs_final.nth(1).input_value().strip() == "", "Proceso Desde deberia quedar vacio"
+assert inputs_final.nth(2).input_value().strip() == "", "Proceso Hasta deberia quedar vacio"
+boton_exportar = frame.get_by_role("button", name=re.compile(r"Exportar", re.I))
+assert not boton_exportar.is_enabled(), "Exportar a Excel deberia quedar deshabilitado tras Nuevo"
+''')
+
+
+def render_all():
+    if not CASES:
+        raise SystemExit(
+            "CASES esta vacio todavia - agregar add(\"CPxxx\", ...) por cada "
+            "caso antes de correr esto (ver TODO arriba)."
+        )
+    for c in CASES:
+        (OUT_DIR / f"{c['cp']}.py").write_text(render(c), encoding="utf-8")
+    print(f"Generados {len(CASES)} scripts en {OUT_DIR}")
+
+
+if __name__ == "__main__":
+    render_all()

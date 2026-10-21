@@ -1,0 +1,7 @@
+{
+  "CP069": {
+    "motivo": "DEFECTO REAL: al consultar el Log de Carga de Datawarehouse SIN ningun filtro (Proceso=(Todos), Etapa=(Todos), fechas Desde/Hasta vacias - la precondicion EXACTA que pide la matriz), la pantalla NO responde: queda esperando indefinidamente y termina mostrando una Ventana de Error (por timeout/espera). Confirmado en vivo por el usuario de forma independiente probandolo a mano en el navegador real (21/10/2026), y reproducido por la automatizacion: con una sonda de red se confirmo que el boton 'Buscar' NO dispara ninguna llamada al backend (0 peticiones a ConsultarLogCarga) cuando los 3 filtros estan vacios - a diferencia de una busqueda con Proceso especifico + rango de fechas, que si funciona y devuelve datos reales (confirmado con 176 registros historicos + los 4 sembrados para este sprint). El escenario 'sin filtros' que la matriz describe como caso valido de uso (CU-39, 'integra ambas fuentes cli y sif en una sola lista') es inalcanzable via UI real sin terminar en error.",
+    "fecha_verificacion": "2026-10-21",
+    "evidencia": "Confirmado manualmente por el usuario en el navegador real (hang + Ventana de Error). Confirmado por automatizacion: sonda de red (_exploracion/probar_rf12_datos_nuevos.py, primera version sin filtro) mostro 0 respuestas de red al boton Buscar con Proceso/Etapa=Todos y fechas vacias, mientras que la misma sonda con Proceso especifico SI disparo POST .../api/log-carga/ConsultarLogCarga -> HTTP 200 con datos reales."
+  }
+}

@@ -27,16 +27,26 @@ este motivo (mismo patron defensivo de campo Fecha ya visto en otras
 pantallas del proyecto, pero aca resuelto a nivel de navegador en vez de
 por logica Angular).
 
-**Datos de prueba (tablas `etl_log_carga_cli` / `etl_log_etapa_cli`)**:
-confirmado en vivo que la tabla de logs puede estar COMPLETAMENTE VACIA
-en un ambiente de Pruebas (probados los 12 procesos con un rango de 11
-años, la API `ConsultarLogCarga` siempre devolvio `[]`) - en ese caso,
-todo caso que dependa de que EXISTA al menos un registro (consultar,
-filtrar, ver orden, ver detalle de etapas) queda bloqueado hasta que se
-inserte data real. Un registro insertado en `etl_log_carga_cli` SIN
-ninguna fila correspondiente en `etl_log_etapa_cli` sirve para probar el
-escenario "registro sin detalle de etapas" (la grilla de etapas debe
-quedar vacia al seleccionarlo).
+**Datos de prueba (tablas `etl_log_carga_cli` / `etl_log_etapa_cli` /
+`etl_log_carga_sif`)**: el hallazgo de "tabla completamente VACIA" de
+IT1/IT2 (26/09 y 16/10/2026) fue DESCARTADO en IT3 (21/10/2026) -
+confirmado con captura de red real que el servicio SI devuelve datos
+(176 registros historicos reales 2026 + los sembrados por la matriz).
+La causa real de "siempre devuelve []" en IT1/IT2 era otra, ver abajo.
+
+**Buscar con TODOS los filtros vacios (Proceso=Todos, Etapa=Todos,
+fechas vacias) NO FUNCIONA via UI real - y no es un simple "no-op"**:
+confirmado en vivo dos veces de forma independiente (21/10/2026): la
+sonda automatizada mostro 0 llamadas de red al backend (el boton
+Buscar no dispara ConsultarLogCarga en absoluto con todo vacio), y el
+usuario, probandolo a mano en el navegador real, confirmo que la
+pantalla se queda colgada ("esperando") y al rato termina mostrando una
+**Ventana de Error por timeout/espera** - mas grave que un simple no-op
+silencioso. **Cualquier caso futuro que la matriz describa como
+"sin filtros"/"fechas vacias" debe adaptarse a un Proceso especifico +
+rango de fechas acotado** (igual resultado esperado - integra ambas
+fuentes, cli y sif, en una sola lista - sin pasar por este camino roto).
+No perder tiempo reintentando la busqueda literal sin filtros.
 ============================================================================
 """
 
