@@ -511,6 +511,15 @@ def abrir_rf08(page, paso_excel=None):
     return abrir_aplicacion(page, ["Comercial", "Proveedores De Corte"], "app-proveedorcorte", paso_excel=paso_excel)
 
 
+def abrir_rf06(page, paso_excel=None):
+    # A diferencia de RF-1..05/07/08 (todas flat bajo Comercial), esta
+    # pantalla vive en una rama DISTINTA del menu: Interno > Gestion De
+    # Seguridad Xnear > Anulacion De Clientes A Corte (confirmado en vivo
+    # 22/10/2026 tras habilitarse el rol BLOQCORT). Componente real:
+    # app-bloqueocorte (coincide con el nombre del rol).
+    return abrir_aplicacion(page, ["Interno", "Gestión De Seguridad Xnear", "Anulación De Clientes A Corte"], "app-bloqueocorte", paso_excel=paso_excel)
+
+
 def obtener_modal_visible(frame, timeout_ms=4000):
     """Devuelve el locator del modal ".ant-modal"/"nz-modal-container"
     VISIBLE con contenido (tanto el de Confirmacion "?" como el de
@@ -763,7 +772,40 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP039 (RF-5 - Determinación del Estado del cliente frente a corte/reposición): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf05(page, paso_excel=1)
+
+            casos_estado = [
+                ("1920482", "Retiro en Trámite", "retiro_en_tramite"),
+                ("675597", "Reconexión en Trámite", "reconexion_en_tramite"),
+                ("1068200", "Corte en Trámite", "corte_en_tramite"),
+                ("909420", "Con Suministro", "con_suministro"),
+            ]
+
+            for indice, (numero_cliente, estado_esperado, etiqueta) in enumerate(casos_estado, start=1):
+                campo_cliente = frame.locator("#numeroCliente")
+                if not campo_cliente.is_enabled():
+                    boton_cancelar = frame.get_by_role("button", name="Cancelar")
+                    if boton_cancelar.is_enabled():
+                        boton_cancelar.click()
+                        app.wait_for_timeout(600)
+                frame.locator("#numeroCliente").click()
+                frame.locator("#numeroCliente").fill(numero_cliente)
+                app.wait_for_timeout(400)
+                frame.get_by_role("button", name="Buscar").click()
+                app.wait_for_timeout(1000)
+                try:
+                    frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=15000)
+                except Exception:
+                    pass
+                app.wait_for_timeout(1200)
+
+                texto = frame.locator("body").inner_text()
+                lineas = [l.strip() for l in texto.split("\n") if l.strip()]
+                estado_valor = lineas[lineas.index("Estado") + 1] if "Estado" in lineas else None
+                assert estado_valor == estado_esperado, (
+                    f"Cliente {numero_cliente}: se esperaba Estado={estado_esperado!r}, se obtuvo {estado_valor!r}"
+                )
+                capturar_paso(app, f"estado_{etiqueta}_verificado", paso_excel=indice + 1)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

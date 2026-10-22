@@ -511,6 +511,15 @@ def abrir_rf08(page, paso_excel=None):
     return abrir_aplicacion(page, ["Comercial", "Proveedores De Corte"], "app-proveedorcorte", paso_excel=paso_excel)
 
 
+def abrir_rf06(page, paso_excel=None):
+    # A diferencia de RF-1..05/07/08 (todas flat bajo Comercial), esta
+    # pantalla vive en una rama DISTINTA del menu: Interno > Gestion De
+    # Seguridad Xnear > Anulacion De Clientes A Corte (confirmado en vivo
+    # 22/10/2026 tras habilitarse el rol BLOQCORT). Componente real:
+    # app-bloqueocorte (coincide con el nombre del rol).
+    return abrir_aplicacion(page, ["Interno", "Gestión De Seguridad Xnear", "Anulación De Clientes A Corte"], "app-bloqueocorte", paso_excel=paso_excel)
+
+
 def obtener_modal_visible(frame, timeout_ms=4000):
     """Devuelve el locator del modal ".ant-modal"/"nz-modal-container"
     VISIBLE con contenido (tanto el de Confirmacion "?" como el de
@@ -763,7 +772,29 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP043 (RF-5 - Cancelar sin confirmación descarta la selección en curso): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf05(page, paso_excel=1)
+            frame.locator("#numeroCliente").click()
+            frame.locator("#numeroCliente").fill("909420")
+            app.wait_for_timeout(500)
+            frame.locator("button:has-text('Buscar')").first.click()
+            app.wait_for_timeout(1000)
+            tabla = frame.locator("nz-table, table").first
+            filas_reales(tabla).first.wait_for(state="visible", timeout=10000)
+
+            fila_pendiente = [filas_reales(tabla).nth(i) for i in range(filas_reales(tabla).count()) if "Activo" in filas_reales(tabla).nth(i).inner_text()][0]
+            fila_pendiente.dblclick()
+            app.wait_for_timeout(800)
+            frame.locator("#motivo").fill("Prueba de cancelacion")
+            app.wait_for_timeout(500)
+            capturar_paso(app, "cargo_seleccionado_y_motivo_escrito_sin_guardar", paso_excel=1)
+
+            frame.get_by_role("button", name="Cancelar").click()
+            app.wait_for_timeout(1200)
+            modal = obtener_modal_visible(frame, timeout_ms=2000)
+            assert modal is None, "Cancelar no deberia pedir confirmacion"
+            capturar_paso(app, "pantalla_reiniciada_tras_cancelar", paso_excel=2)
+
+            assert frame.locator("#numeroCliente").input_value() == "", "La pantalla deberia volver al estado inicial de busqueda"
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

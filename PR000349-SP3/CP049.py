@@ -511,6 +511,15 @@ def abrir_rf08(page, paso_excel=None):
     return abrir_aplicacion(page, ["Comercial", "Proveedores De Corte"], "app-proveedorcorte", paso_excel=paso_excel)
 
 
+def abrir_rf06(page, paso_excel=None):
+    # A diferencia de RF-1..05/07/08 (todas flat bajo Comercial), esta
+    # pantalla vive en una rama DISTINTA del menu: Interno > Gestion De
+    # Seguridad Xnear > Anulacion De Clientes A Corte (confirmado en vivo
+    # 22/10/2026 tras habilitarse el rol BLOQCORT). Componente real:
+    # app-bloqueocorte (coincide con el nombre del rol).
+    return abrir_aplicacion(page, ["Interno", "Gestión De Seguridad Xnear", "Anulación De Clientes A Corte"], "app-bloqueocorte", paso_excel=paso_excel)
+
+
 def obtener_modal_visible(frame, timeout_ms=4000):
     """Devuelve el locator del modal ".ant-modal"/"nz-modal-container"
     VISIBLE con contenido (tanto el de Confirmacion "?" como el de
@@ -763,7 +772,47 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP049 (RF-6 - Anulación de bloqueos de corte vigentes sin indicar días): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf06(page, paso_excel=1)
+            frame.locator("#numeroCliente").click()
+            frame.locator("#numeroCliente").fill("1454472")
+            app.wait_for_timeout(500)
+            frame.locator("button:has-text('Leer')").first.click()
+            app.wait_for_timeout(1200)
+            fecha_corte_antes = None
+            mensaje_previo = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+            assert mensaje_previo is not None, "Se esperaba el aviso de bloqueo vigente para este cliente"
+            app.wait_for_timeout(800)
+            fecha_corte_antes = frame.locator("#fechaCorteCliente").input_value()
+            capturar_paso(app, "cliente_con_bloqueos_vigentes_cargado", paso_excel=1)
+
+            assert frame.locator("#dias").input_value() == "", "Dias de Extension deberia estar vacio"
+            frame.get_by_role("button", name="Ingresar").click()
+            app.wait_for_timeout(1200)
+            mensaje = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+            assert mensaje is not None and "anular los bloqueos" in mensaje.lower(), (
+                f"Se esperaba la confirmacion de anular bloqueos vigentes: {mensaje!r}"
+            )
+            capturar_paso(app, "confirmacion_de_anular_bloqueos_aceptada", paso_excel=2)
+
+            app.wait_for_timeout(1500)
+            mensaje_exito = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+            if mensaje_exito:
+                capturar_paso(app, "mensaje_de_anulacion_realizada", paso_excel=3)
+
+            app.wait_for_timeout(800)
+            frame.locator("#numeroCliente").click()
+            frame.locator("#numeroCliente").fill("1454472")
+            app.wait_for_timeout(500)
+            frame.get_by_role("button", name="Leer").click()
+            app.wait_for_timeout(1200)
+            assert obtener_modal_visible(frame, timeout_ms=3000) is None, (
+                "El bloqueo vigente deberia haberse anulado, ya no deberia aparecer el aviso"
+            )
+            fecha_corte_despues = frame.locator("#fechaCorteCliente").input_value()
+            assert fecha_corte_despues == fecha_corte_antes, (
+                f"La fecha de corte no deberia cambiar al solo anular bloqueos (antes={fecha_corte_antes!r}, despues={fecha_corte_despues!r})"
+            )
+            capturar_paso(app, "bloqueos_dados_de_baja_fecha_corte_sin_cambios", paso_excel=4)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

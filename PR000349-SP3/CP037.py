@@ -511,6 +511,15 @@ def abrir_rf08(page, paso_excel=None):
     return abrir_aplicacion(page, ["Comercial", "Proveedores De Corte"], "app-proveedorcorte", paso_excel=paso_excel)
 
 
+def abrir_rf06(page, paso_excel=None):
+    # A diferencia de RF-1..05/07/08 (todas flat bajo Comercial), esta
+    # pantalla vive en una rama DISTINTA del menu: Interno > Gestion De
+    # Seguridad Xnear > Anulacion De Clientes A Corte (confirmado en vivo
+    # 22/10/2026 tras habilitarse el rol BLOQCORT). Componente real:
+    # app-bloqueocorte (coincide con el nombre del rol).
+    return abrir_aplicacion(page, ["Interno", "Gestión De Seguridad Xnear", "Anulación De Clientes A Corte"], "app-bloqueocorte", paso_excel=paso_excel)
+
+
 def obtener_modal_visible(frame, timeout_ms=4000):
     """Devuelve el locator del modal ".ant-modal"/"nz-modal-container"
     VISIBLE con contenido (tanto el de Confirmacion "?" como el de
@@ -763,7 +772,29 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP037 (RF-5 - Cliente sin tarifa parametrizada): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf05(page, paso_excel=1)
+            frame.locator("#numeroCliente").click()
+            frame.locator("#numeroCliente").fill("1415959")
+            app.wait_for_timeout(500)
+            capturar_paso(app, "cliente_con_tarifa_sin_parametrizar_ingresado", paso_excel=1)
+
+            frame.locator("button:has-text('Buscar')").first.click()
+            app.wait_for_timeout(1000)
+            try:
+                frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=15000)
+            except Exception:
+                pass
+            app.wait_for_timeout(1000)
+            mensaje = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+            assert mensaje is not None and "no registra corte" in mensaje.lower(), (
+                f"Se esperaba el aviso de cliente que no registra corte: {mensaje!r}"
+            )
+            capturar_paso(app, "aviso_cliente_no_registra_corte", paso_excel=2)
+
+            app.wait_for_timeout(500)
+            filas = frame.locator("tbody tr:not(.ant-table-measure-now)").filter(has_not_text="No hay datos")
+            assert filas.count() == 0, "No deberia cargarse ningun cargo pendiente"
+            capturar_paso(app, "sin_cargos_pendientes_cargados", paso_excel=3)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

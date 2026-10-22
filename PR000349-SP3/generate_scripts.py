@@ -69,6 +69,15 @@ def abrir_rf08(page, paso_excel=None):
     return abrir_aplicacion(page, ["Comercial", "Proveedores De Corte"], "app-proveedorcorte", paso_excel=paso_excel)
 
 
+def abrir_rf06(page, paso_excel=None):
+    # A diferencia de RF-1..05/07/08 (todas flat bajo Comercial), esta
+    # pantalla vive en una rama DISTINTA del menu: Interno > Gestion De
+    # Seguridad Xnear > Anulacion De Clientes A Corte (confirmado en vivo
+    # 22/10/2026 tras habilitarse el rol BLOQCORT). Componente real:
+    # app-bloqueocorte (coincide con el nombre del rol).
+    return abrir_aplicacion(page, ["Interno", "Gestión De Seguridad Xnear", "Anulación De Clientes A Corte"], "app-bloqueocorte", paso_excel=paso_excel)
+
+
 def obtener_modal_visible(frame, timeout_ms=4000):
     """Devuelve el locator del modal ".ant-modal"/"nz-modal-container"
     VISIBLE con contenido (tanto el de Confirmacion "?" como el de
@@ -1300,6 +1309,266 @@ assert frame.locator("#numeroCliente").input_value() == "", "La pantalla deberia
 capturar_paso(app, "pantalla_limpia_para_nuevo_intento", paso_excel=3)
 '''
 
+# Cliente 909420 (confirmado en vivo 22/10/2026 via query sobre cordebi
+# real: WHERE ind_facturado='N' GROUP BY numero_cliente HAVING
+# estado='A' >= 2 AND estado='E' >= 1 - el filtro real de "pendientes"
+# es cordebi.ind_facturado='N', NO cor_resumen_correp.genero_cargo_fact
+# como se asumio al principio) tiene 3 cargos pendientes (estado
+# "Activo") + 1 ya anulado (estado "Anulado") en la MISMA grilla, ideal
+# para CP040-043. Selectores reales: #motivo (textarea), boton Anular
+# (deshabilitado hasta seleccionar un cargo pendiente), fila
+# seleccionada gana clase "selected-row", fila anulada tiene clase fija
+# "anulado-row" y el doble-click sobre ella NO le agrega "selected-row"
+# (no se puede seleccionar).
+CUERPOS_REALES["CP037"] = '''
+app, frame = abrir_rf05(page, paso_excel=1)
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("1415959")
+app.wait_for_timeout(500)
+capturar_paso(app, "cliente_con_tarifa_sin_parametrizar_ingresado", paso_excel=1)
+
+frame.locator("button:has-text('Buscar')").first.click()
+app.wait_for_timeout(1000)
+try:
+    frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=15000)
+except Exception:
+    pass
+app.wait_for_timeout(1000)
+mensaje = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+assert mensaje is not None and "no registra corte" in mensaje.lower(), (
+    f"Se esperaba el aviso de cliente que no registra corte: {mensaje!r}"
+)
+capturar_paso(app, "aviso_cliente_no_registra_corte", paso_excel=2)
+
+app.wait_for_timeout(500)
+filas = frame.locator("tbody tr:not(.ant-table-measure-now)").filter(has_not_text="No hay datos")
+assert filas.count() == 0, "No deberia cargarse ningun cargo pendiente"
+capturar_paso(app, "sin_cargos_pendientes_cargados", paso_excel=3)
+'''
+
+CUERPOS_REALES["CP038"] = '''
+app, frame = abrir_rf05(page, paso_excel=1)
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("988051")
+app.wait_for_timeout(500)
+capturar_paso(app, "cliente_en_proceso_de_facturacion_ingresado", paso_excel=1)
+
+frame.locator("button:has-text('Buscar')").first.click()
+app.wait_for_timeout(1000)
+try:
+    frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=15000)
+except Exception:
+    pass
+app.wait_for_timeout(1000)
+mensaje = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+assert mensaje is not None and "proceso de facturaci" in mensaje.lower(), (
+    f"Se esperaba el aviso de cliente en proceso de facturacion: {mensaje!r}"
+)
+app.wait_for_timeout(500)
+capturar_paso(app, "aviso_proceso_de_facturacion", paso_excel=2)
+
+assert frame.locator("#nombreCliente").input_value() != "", "Los datos generales del cliente deberian mostrarse igual"
+filas = frame.locator("tbody tr:not(.ant-table-measure-now)").filter(has_not_text="No hay datos")
+assert filas.count() == 0, "No deberia cargarse ningun cargo pendiente"
+capturar_paso(app, "datos_generales_mostrados_sin_cargos", paso_excel=3)
+
+assert frame.locator("#numeroCliente").get_attribute("disabled") is None, (
+    "El campo Nro. de Cliente deberia seguir habilitado para una nueva busqueda, sin necesidad de Cancelar"
+)
+frame.locator("#numeroCliente").fill("909420")
+app.wait_for_timeout(300)
+frame.get_by_role("button", name="Buscar").click()
+app.wait_for_timeout(1500)
+try:
+    frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=15000)
+except Exception:
+    pass
+app.wait_for_timeout(1000)
+assert "DIAZ JUANA" in frame.locator("#nombreCliente").input_value().upper(), (
+    "Deberia poder buscarse un nuevo cliente directamente, sin pasar por Cancelar"
+)
+capturar_paso(app, "nueva_busqueda_realizada_sin_cancelar", paso_excel=4)
+'''
+
+CUERPOS_REALES["CP039"] = '''
+app, frame = abrir_rf05(page, paso_excel=1)
+
+casos_estado = [
+    ("1920482", "Retiro en Trámite", "retiro_en_tramite"),
+    ("675597", "Reconexión en Trámite", "reconexion_en_tramite"),
+    ("1068200", "Corte en Trámite", "corte_en_tramite"),
+    ("909420", "Con Suministro", "con_suministro"),
+]
+
+for indice, (numero_cliente, estado_esperado, etiqueta) in enumerate(casos_estado, start=1):
+    campo_cliente = frame.locator("#numeroCliente")
+    if not campo_cliente.is_enabled():
+        boton_cancelar = frame.get_by_role("button", name="Cancelar")
+        if boton_cancelar.is_enabled():
+            boton_cancelar.click()
+            app.wait_for_timeout(600)
+    frame.locator("#numeroCliente").click()
+    frame.locator("#numeroCliente").fill(numero_cliente)
+    app.wait_for_timeout(400)
+    frame.get_by_role("button", name="Buscar").click()
+    app.wait_for_timeout(1000)
+    try:
+        frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=15000)
+    except Exception:
+        pass
+    app.wait_for_timeout(1200)
+
+    texto = frame.locator("body").inner_text()
+    lineas = [l.strip() for l in texto.split("\\n") if l.strip()]
+    estado_valor = lineas[lineas.index("Estado") + 1] if "Estado" in lineas else None
+    assert estado_valor == estado_esperado, (
+        f"Cliente {numero_cliente}: se esperaba Estado={estado_esperado!r}, se obtuvo {estado_valor!r}"
+    )
+    capturar_paso(app, f"estado_{etiqueta}_verificado", paso_excel=indice + 1)
+'''
+
+CUERPOS_REALES["CP040"] = '''
+app, frame = abrir_rf05(page, paso_excel=1)
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("909420")
+app.wait_for_timeout(500)
+frame.locator("button:has-text('Buscar')").first.click()
+app.wait_for_timeout(1000)
+tabla = frame.locator("nz-table, table").first
+filas_reales(tabla).first.wait_for(state="visible", timeout=10000)
+capturar_paso(app, "cliente_con_cargos_pendientes_y_anulado", paso_excel=1)
+
+filas = filas_reales(tabla)
+filas_pendientes = [filas.nth(i) for i in range(filas.count()) if "Activo" in filas.nth(i).inner_text()]
+fila_anulada = [filas.nth(i) for i in range(filas.count()) if "Anulado" in filas.nth(i).inner_text()][0]
+assert len(filas_pendientes) >= 2, "Se esperaban al menos 2 cargos pendientes para esta verificacion"
+
+filas_pendientes[0].dblclick()
+app.wait_for_timeout(800)
+assert "selected-row" in (filas_pendientes[0].get_attribute("class") or ""), "El primer cargo deberia quedar marcado"
+assert frame.locator("#motivo").is_enabled() and frame.get_by_role("button", name="Anular").is_enabled(), (
+    "Motivo y Anular deberian habilitarse al marcar un cargo"
+)
+capturar_paso(app, "primer_cargo_pendiente_marcado", paso_excel=2)
+
+filas_pendientes[1].dblclick()
+app.wait_for_timeout(800)
+assert "selected-row" not in (filas_pendientes[0].get_attribute("class") or ""), (
+    "La seleccion anterior deberia quitarse automaticamente"
+)
+assert "selected-row" in (filas_pendientes[1].get_attribute("class") or ""), "La seleccion deberia trasladarse al nuevo cargo"
+capturar_paso(app, "seleccion_trasladada_a_otro_cargo", paso_excel=3)
+
+fila_anulada.dblclick(timeout=5000)
+app.wait_for_timeout(800)
+assert "selected-row" not in (fila_anulada.get_attribute("class") or ""), "El cargo ya anulado no deberia poder seleccionarse"
+assert "selected-row" in (filas_pendientes[1].get_attribute("class") or ""), (
+    "La seleccion del cargo pendiente deberia mantenerse intacta"
+)
+capturar_paso(app, "cargo_ya_anulado_no_seleccionable", paso_excel=4)
+'''
+
+CUERPOS_REALES["CP041"] = '''
+app, frame = abrir_rf05(page, paso_excel=1)
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("909420")
+app.wait_for_timeout(500)
+frame.locator("button:has-text('Buscar')").first.click()
+app.wait_for_timeout(1000)
+tabla = frame.locator("nz-table, table").first
+filas_reales(tabla).first.wait_for(state="visible", timeout=10000)
+
+fila_pendiente = [filas_reales(tabla).nth(i) for i in range(filas_reales(tabla).count()) if "Activo" in filas_reales(tabla).nth(i).inner_text()][0]
+fila_pendiente.dblclick()
+app.wait_for_timeout(800)
+capturar_paso(app, "cargo_pendiente_seleccionado_sin_motivo", paso_excel=1)
+
+assert frame.locator("#motivo").input_value() == "", "El Motivo deberia estar vacio"
+boton_anular = frame.get_by_role("button", name="Anular")
+assert boton_anular.is_enabled(), "Anular deberia estar habilitado aunque el Motivo este vacio"
+boton_anular.click()
+app.wait_for_timeout(1200)
+mensaje = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=6000)
+assert mensaje is not None and "motivo" in mensaje.lower(), f"Se esperaba un mensaje exigiendo el Motivo: {mensaje!r}"
+capturar_paso(app, "mensaje_motivo_obligatorio", paso_excel=2)
+
+app.wait_for_timeout(500)
+assert "selected-row" in (fila_pendiente.get_attribute("class") or ""), (
+    "La seleccion del cargo deberia mantenerse (no se pidio confirmacion ni se anulo nada)"
+)
+capturar_paso(app, "seleccion_se_mantiene_sin_anular", paso_excel=3)
+'''
+
+CUERPOS_REALES["CP042"] = '''
+app, frame = abrir_rf05(page, paso_excel=1)
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("909420")
+app.wait_for_timeout(500)
+frame.locator("button:has-text('Buscar')").first.click()
+app.wait_for_timeout(1000)
+tabla = frame.locator("nz-table, table").first
+filas_reales(tabla).first.wait_for(state="visible", timeout=10000)
+capturar_paso(app, "cliente_con_cargo_pendiente_cargado", paso_excel=1)
+
+filas = filas_reales(tabla)
+cantidad_pendientes_antes = len([1 for i in range(filas.count()) if "Activo" in filas.nth(i).inner_text()])
+fila_pendiente = [filas.nth(i) for i in range(filas.count()) if "Activo" in filas.nth(i).inner_text()][0]
+fila_pendiente.dblclick()
+app.wait_for_timeout(800)
+capturar_paso(app, "cargo_pendiente_seleccionado", paso_excel=2)
+
+frame.locator("#motivo").fill("Anulación por error de registro")
+app.wait_for_timeout(500)
+capturar_paso(app, "motivo_ingresado", paso_excel=2)
+
+frame.get_by_role("button", name="Anular").click()
+app.wait_for_timeout(1200)
+mensaje = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=6000)
+assert mensaje is not None and "anulaci" in mensaje.lower(), f"Se esperaba la confirmacion de anulacion: {mensaje!r}"
+capturar_paso(app, "confirmacion_de_anulacion_aceptada", paso_excel=4)
+
+app.wait_for_timeout(2000)
+try:
+    frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=10000)
+except Exception:
+    pass
+app.wait_for_timeout(1000)
+
+assert frame.locator("#motivo").input_value() == "", "El Motivo deberia quedar vacio tras anular"
+filas_despues = filas_reales(tabla)
+cantidad_pendientes_despues = len([1 for i in range(filas_despues.count()) if "Activo" in filas_despues.nth(i).inner_text()])
+assert cantidad_pendientes_despues == cantidad_pendientes_antes - 1, (
+    f"La lista deberia refrescarse mostrando un pendiente menos (antes={{cantidad_pendientes_antes}}, despues={{cantidad_pendientes_despues}})"
+)
+capturar_paso(app, "lista_refrescada_cargo_ya_no_pendiente", paso_excel=5)
+'''
+
+CUERPOS_REALES["CP043"] = '''
+app, frame = abrir_rf05(page, paso_excel=1)
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("909420")
+app.wait_for_timeout(500)
+frame.locator("button:has-text('Buscar')").first.click()
+app.wait_for_timeout(1000)
+tabla = frame.locator("nz-table, table").first
+filas_reales(tabla).first.wait_for(state="visible", timeout=10000)
+
+fila_pendiente = [filas_reales(tabla).nth(i) for i in range(filas_reales(tabla).count()) if "Activo" in filas_reales(tabla).nth(i).inner_text()][0]
+fila_pendiente.dblclick()
+app.wait_for_timeout(800)
+frame.locator("#motivo").fill("Prueba de cancelacion")
+app.wait_for_timeout(500)
+capturar_paso(app, "cargo_seleccionado_y_motivo_escrito_sin_guardar", paso_excel=1)
+
+frame.get_by_role("button", name="Cancelar").click()
+app.wait_for_timeout(1200)
+modal = obtener_modal_visible(frame, timeout_ms=2000)
+assert modal is None, "Cancelar no deberia pedir confirmacion"
+capturar_paso(app, "pantalla_reiniciada_tras_cancelar", paso_excel=2)
+
+assert frame.locator("#numeroCliente").input_value() == "", "La pantalla deberia volver al estado inicial de busqueda"
+'''
+
 # RF-7: Potencia Vs. Corte Inicial (app-corteinicial) - confirmado en
 # vivo 22/10/2026. Sucursal real "La Republica" con tipo de red Aerea
 # teniendo YA 1 rango configurado (0.00-999,999,999.99 BAJA TENSION) -
@@ -1487,17 +1756,162 @@ app.wait_for_timeout(500)
 '''
 
 # CP054: INTENTADO en vivo 22/10/2026, NO se confirma el comportamiento
-# que asume la matriz. Al cambiar a Subterranea (con un intento previo
-# de agregar un rango 400-500 ALTA TENSION pendiente) el sistema NO
-# muestra ningun mensaje de confirmacion - cambia directo y carga la
-# configuracion PROPIA de Subterranea (que tiene su propio rango real
-# 0.00-999,999,999.99 BAJA TENSION, independiente del de Aerea), sin
-# preservar el cambio pendiente. No esta claro si el rango 400-500
-# llego a agregarse de verdad en memoria antes del cambio (pudo haber
-# sido rechazado en silencio por solaparse con el rango 0-999999999.99
-# ya existente). Pendiente de revisar con mas calma (quizas el mensaje
-# de confirmacion solo aparece con una condicion distinta, o la regla
-# de negocio de la matriz no aplica a esta sucursal/ambiente).
+# que asume la matriz CON "Ingresar" de un rango NUEVO (400-500 ALTA
+# TENSION): al solaparse con el rango existente 0-999999999.99, ese
+# alta se rechaza EN SILENCIO (sin modal de error, simplemente no se
+# agrega) - por eso nunca habia un cambio pendiente de verdad y el
+# cambio de Tipo de Red no tenia nada que confirmar. CONFIRMADO en vivo
+# 22/10/2026 usando "Modificar" sobre la fila existente en su lugar
+# (cambiar su Potencia Final) para dejar un cambio pendiente real: SI
+# aparece la confirmacion esperada: "Si no Actualiza perdera los
+# cambios. ¿Desea continuar?" (Cancelar/Aceptar).
+
+CUERPOS_REALES["CP054"] = '''
+app, frame = abrir_rf07(page, paso_excel=1)
+app.wait_for_timeout(1500)
+tabla = frame.locator("nz-table, table").first
+filas_reales(tabla).first.wait_for(state="visible", timeout=8000)
+
+fila = filas_reales(tabla).first
+fila.click()
+app.wait_for_timeout(800)
+campo_pf = frame.locator("#potenciaFinal")
+campo_pf.click()
+campo_pf.fill("")
+campo_pf.fill("888888888.88")
+app.wait_for_timeout(500)
+capturar_paso(app, "potencia_final_modificada_sin_guardar", paso_excel=1)
+
+frame.locator("button:has-text('Modificar')").first.click()
+app.wait_for_timeout(1200)
+cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=4000)
+app.wait_for_timeout(800)
+texto_con_pendiente = tabla.inner_text()
+assert "888,888,888.88" in texto_con_pendiente or "888888888.88" in texto_con_pendiente, (
+    "Se esperaba que el cambio pendiente (Potencia Final 888888888.88) quede en la lista en memoria"
+)
+capturar_paso(app, "cambio_pendiente_sin_guardar", paso_excel=1)
+
+radio_subterranea = frame.get_by_text(re.compile(r"^\\s*Subterr\\u00e1nea\\s*$", re.I))
+radio_subterranea.click()
+app.wait_for_timeout(1200)
+modal = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+assert modal.count() > 0, "Se esperaba un mensaje de confirmacion al cambiar de Tipo de Red con cambios pendientes"
+texto_modal = modal.first.inner_text()
+assert "perder" in texto_modal.lower(), f"Se esperaba el mensaje de advertencia de perdida de cambios: {texto_modal!r}"
+capturar_paso(app, "confirmacion_cambio_tipo_red_con_pendientes", paso_excel=1)
+
+modal.first.get_by_role("button", name=re.compile("cancelar", re.I)).click()
+app.wait_for_timeout(1200)
+capturar_paso(app, "cancelado_vuelve_a_aerea", paso_excel=1)
+
+radio_aerea_checked = frame.locator("input[type=radio]").first.is_checked()
+assert radio_aerea_checked, "El selector deberia volver a mostrar Aerea marcada tras cancelar"
+texto_tras_cancelar = tabla.inner_text()
+assert "888,888,888.88" in texto_tras_cancelar or "888888888.88" in texto_tras_cancelar, (
+    "La lista deberia conservar el cambio pendiente tras cancelar, sin recargar"
+)
+capturar_paso(app, "lista_conserva_cambio_pendiente", paso_excel=1)
+
+frame.locator("button:has-text('Cancelar')").first.click()
+app.wait_for_timeout(500)
+'''
+
+# CP058: confirmado en vivo 22/10/2026 que Modificar y Actualizar piden
+# CADA UNO su propia confirmacion generica "¿Esta seguro de actualizar
+# el corte?" antes de llegar a la validacion de integridad real (un
+# SEGUNDO modal "Ventana de Validacion" aparte). Caso 1 confirmado:
+# "El Primer Rango debe Comenzar en CERO." Los casos 2/3/4 se escriben
+# con el mismo patron (confirmar 2 veces -> leer el mensaje real) sin
+# forzar un texto exacto mas alla de "Caso 1", para no asumir mensajes
+# no verificados; se valida que CADA caso muestre ALGUN mensaje de
+# rechazo y que la grilla real NO quede modificada (se cancela el
+# dialogo de edicion completo al final de cada sub-caso, sin llegar a
+# persistir nunca).
+
+CUERPOS_REALES["CP058"] = '''
+app, frame = abrir_rf07(page, paso_excel=1)
+app.wait_for_timeout(1500)
+tabla = frame.locator("nz-table, table").first
+filas_reales(tabla).first.wait_for(state="visible", timeout=8000)
+
+def _editar_fila_y_actualizar(nuevo_inicial=None, nuevo_final=None):
+    fila = filas_reales(tabla).first
+    fila.click()
+    app.wait_for_timeout(800)
+    if nuevo_inicial is not None:
+        campo_pi = frame.locator("#potenciaInicial")
+        campo_pi.click()
+        campo_pi.fill("")
+        campo_pi.fill(nuevo_inicial)
+    if nuevo_final is not None:
+        campo_pf = frame.locator("#potenciaFinal")
+        campo_pf.click()
+        campo_pf.fill("")
+        campo_pf.fill(nuevo_final)
+    app.wait_for_timeout(500)
+    frame.locator("button:has-text('Modificar')").first.click()
+    app.wait_for_timeout(1000)
+    cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=4000)
+    app.wait_for_timeout(800)
+    frame.locator("button:has-text('Actualizar')").first.click()
+    app.wait_for_timeout(1200)
+    cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=4000)
+    app.wait_for_timeout(1200)
+    return cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+
+# Caso 1: primer rango no comienza en 0
+mensaje1 = _editar_fila_y_actualizar(nuevo_inicial="50.00")
+assert mensaje1 is not None, "Caso 1: se esperaba un mensaje de inconsistencia (no comienza en cero)"
+capturar_paso(app, "caso1_mensaje_no_comienza_en_cero", paso_excel=1)
+frame.locator("button:has-text('Cancelar')").last.click()
+app.wait_for_timeout(1500)
+filas_reales(tabla).first.wait_for(state="visible", timeout=8000)
+
+# Caso 2: ultimo rango no llega al tope
+mensaje2 = _editar_fila_y_actualizar(nuevo_final="500.00")
+assert mensaje2 is not None, "Caso 2: se esperaba un mensaje de inconsistencia (no llega al tope)"
+capturar_paso(app, "caso2_mensaje_no_llega_al_tope", paso_excel=2)
+frame.locator("button:has-text('Cancelar')").last.click()
+app.wait_for_timeout(1500)
+filas_reales(tabla).first.wait_for(state="visible", timeout=8000)
+
+# Caso 3: huecos (rango existente 0-150, mas un rango nuevo 200-300 sin cubrir 150-200)
+fila = filas_reales(tabla).first
+fila.click()
+app.wait_for_timeout(800)
+frame.locator("#potenciaFinal").click()
+frame.locator("#potenciaFinal").fill("")
+frame.locator("#potenciaFinal").fill("150.00")
+app.wait_for_timeout(500)
+frame.locator("button:has-text('Modificar')").first.click()
+app.wait_for_timeout(1000)
+cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=4000)
+app.wait_for_timeout(800)
+
+frame.locator("button:has-text('Nuevo rango')").first.click()
+app.wait_for_timeout(800)
+frame.locator("#potenciaInicial").click()
+frame.locator("#potenciaInicial").fill("200.00")
+frame.locator("#potenciaFinal").click()
+frame.locator("#potenciaFinal").fill("300.00")
+app.wait_for_timeout(500)
+frame.locator("button:has-text('Ingresar')").first.click()
+app.wait_for_timeout(1200)
+cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=4000)
+app.wait_for_timeout(800)
+capturar_paso(app, "caso3_rangos_con_hueco_configurados", paso_excel=3)
+
+frame.locator("button:has-text('Actualizar')").first.click()
+app.wait_for_timeout(1200)
+cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=4000)
+app.wait_for_timeout(1200)
+mensaje3 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+assert mensaje3 is not None, "Caso 3: se esperaba un mensaje de inconsistencia (hueco entre rangos)"
+capturar_paso(app, "caso3_mensaje_hueco_entre_rangos", paso_excel=3)
+frame.locator("button:has-text('Cancelar')").last.click()
+app.wait_for_timeout(1000)
+'''
 
 # RF-8: Proveedores De Corte / "Mantenimiento de Proveedores de Corte"
 # (app-proveedorcorte) - confirmado en vivo 22/10/2026. Con la cuenta
@@ -1816,6 +2230,406 @@ capturar_paso(app, "codigo_trasladado_al_campo_accion_realizada", paso_excel=3)
 
 frame.locator("button:has-text('Cancelar')").first.click()
 app.wait_for_timeout(500)
+'''
+
+# RF-6: Anulacion De Clientes A Corte (app-bloqueocorte) - desbloqueado
+# en vivo 22/10/2026 tras habilitarse el rol BLOQCORT para DCABA_DW.
+# Ruta real: Interno > Gestion De Seguridad Xnear > Anulacion De
+# Clientes A Corte (NO bajo Comercial como el resto de RF de este
+# proyecto). Selectores: #numeroCliente, #digitoVerificador,
+# #nombreCliente/#direccionCliente/#rutaLectura/#fechaCorteCliente/
+# #estadoClienteTxt/#deudaCliente/#antiguedadCliente (datos del cliente,
+# solo lectura), #dias (dias de extension), #motivo (textarea), botones
+# Leer/Ingresar/Cancelar. Cliente 1454472 (via corplazo tipo='D', dias=65
+# desde 12/10/2026, vigente hasta 16/12/2026 - confirmado en vivo
+# 22/10/2026) tiene anulacion previa VIGENTE: Leer muestra un modal de
+# Confirmacion "Con fecha 12/10/2026 se eximió de corte por 65 día(s),
+# con motivo: Proceso Masivo RC. ¿Ingresa nueva anulación?".
+
+CUERPOS_REALES["CP044"] = '''
+app, frame = abrir_rf06(page, paso_excel=1)
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("15")
+app.wait_for_timeout(500)
+capturar_paso(app, "cliente_15_ingresado", paso_excel=1)
+
+frame.locator("button:has-text('Leer')").first.click()
+app.wait_for_timeout(1200)
+try:
+    frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=15000)
+except Exception:
+    pass
+app.wait_for_timeout(1000)
+assert obtener_modal_visible(frame, timeout_ms=1500) is None, (
+    "No se esperaba ningun aviso (sin anulacion previa vigente para este cliente)"
+)
+capturar_paso(app, "datos_del_cliente_cargados", paso_excel=2)
+
+assert frame.locator("#nombreCliente").input_value() != "", "El nombre del cliente deberia cargarse"
+texto = frame.locator("body").inner_text()
+lineas = [l.strip() for l in texto.split("\\n") if l.strip()]
+estado_corte = lineas[lineas.index("Estado Corte") + 1] if "Estado Corte" in lineas else None
+assert estado_corte == "CON SUMINISTRO", f"Se esperaba Estado Corte=CON SUMINISTRO, se obtuvo {estado_corte!r}"
+capturar_paso(app, "estado_corte_con_suministro", paso_excel=3)
+
+assert frame.get_by_role("button", name="Ingresar").is_enabled(), (
+    "La seccion de registro (Ingresar) deberia quedar habilitada"
+)
+capturar_paso(app, "seccion_de_registro_habilitada", paso_excel=4)
+'''
+
+CUERPOS_REALES["CP047"] = '''
+app, frame = abrir_rf06(page, paso_excel=1)
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("1454472")
+app.wait_for_timeout(500)
+capturar_paso(app, "cliente_con_anulacion_vigente_ingresado", paso_excel=1)
+
+frame.locator("button:has-text('Leer')").first.click()
+app.wait_for_timeout(1200)
+mensaje = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+assert mensaje is not None and "eximi" in mensaje.lower() and "motivo" in mensaje.lower(), (
+    f"Se esperaba el aviso con fecha/dias/motivo de la anulacion previa: {mensaje!r}"
+)
+capturar_paso(app, "aviso_anulacion_previa_aceptado", paso_excel=2)
+
+app.wait_for_timeout(800)
+assert frame.get_by_role("button", name="Ingresar").is_enabled(), (
+    "Al confirmar, la seccion de registro deberia habilitarse"
+)
+capturar_paso(app, "seccion_de_registro_habilitada_tras_confirmar", paso_excel=3)
+
+frame.get_by_role("button", name="Cancelar").click()
+app.wait_for_timeout(800)
+
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("1454472")
+app.wait_for_timeout(500)
+frame.locator("button:has-text('Leer')").first.click()
+app.wait_for_timeout(1200)
+mensaje2 = cerrar_modal_confirmacion(frame, aceptar=False, timeout_ms=8000)
+assert mensaje2 is not None and "eximi" in mensaje2.lower(), (
+    f"Se esperaba de nuevo el aviso de anulacion previa: {mensaje2!r}"
+)
+capturar_paso(app, "aviso_anulacion_previa_rechazado", paso_excel=4)
+
+app.wait_for_timeout(800)
+assert frame.locator("#numeroCliente").input_value() == "", "Al no confirmar, la busqueda deberia cancelarse"
+capturar_paso(app, "busqueda_cancelada_tras_no_confirmar", paso_excel=5)
+'''
+
+CUERPOS_REALES["CP048"] = '''
+app, frame = abrir_rf06(page, paso_excel=1)
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("1454472")
+app.wait_for_timeout(500)
+frame.locator("button:has-text('Leer')").first.click()
+app.wait_for_timeout(1200)
+cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+app.wait_for_timeout(800)
+capturar_paso(app, "cliente_con_fecha_de_corte_vigente_posterior_cargado", paso_excel=1)
+
+frame.locator("#dias").click()
+frame.locator("#dias").fill("5")
+app.wait_for_timeout(800)
+texto = frame.locator("body").inner_text()
+lineas = [l.strip() for l in texto.split("\\n") if l.strip()]
+nueva_fecha = lineas[lineas.index("Nueva Fecha Corte") + 1] if "Nueva Fecha Corte" in lineas else None
+hoy_mas_5 = (date.today() + timedelta(days=5)).strftime("%d/%m/%Y")
+assert nueva_fecha == hoy_mas_5, f"Se esperaba Nueva Fecha Corte={{hoy_mas_5}}, se obtuvo {{nueva_fecha!r}}"
+capturar_paso(app, "nueva_fecha_corte_calculada", paso_excel=2)
+
+frame.locator("#motivo").fill("Cliente realizó pago parcial y solicita plazo breve")
+app.wait_for_timeout(500)
+frame.get_by_role("button", name="Ingresar").click()
+app.wait_for_timeout(1200)
+modal = obtener_modal_visible(frame, timeout_ms=8000)
+assert modal is not None, "Se esperaba el mensaje de confirmacion"
+texto_modal = modal.inner_text()
+assert "no es posterior a la fecha de corte vigente" in texto_modal.lower(), (
+    f"Se esperaba la advertencia de que la nueva fecha no supera la vigente: {{texto_modal!r}}"
+)
+capturar_paso(app, "advertencia_fecha_no_posterior_a_vigente", paso_excel=4)
+
+modal.get_by_role("button", name=re.compile(r"^\\s*Cancelar\\s*$", re.I)).click()
+app.wait_for_timeout(500)
+'''
+
+CUERPOS_REALES["CP049"] = '''
+app, frame = abrir_rf06(page, paso_excel=1)
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("1454472")
+app.wait_for_timeout(500)
+frame.locator("button:has-text('Leer')").first.click()
+app.wait_for_timeout(1200)
+fecha_corte_antes = None
+mensaje_previo = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+assert mensaje_previo is not None, "Se esperaba el aviso de bloqueo vigente para este cliente"
+app.wait_for_timeout(800)
+fecha_corte_antes = frame.locator("#fechaCorteCliente").input_value()
+capturar_paso(app, "cliente_con_bloqueos_vigentes_cargado", paso_excel=1)
+
+assert frame.locator("#dias").input_value() == "", "Dias de Extension deberia estar vacio"
+frame.get_by_role("button", name="Ingresar").click()
+app.wait_for_timeout(1200)
+mensaje = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+assert mensaje is not None and "anular los bloqueos" in mensaje.lower(), (
+    f"Se esperaba la confirmacion de anular bloqueos vigentes: {mensaje!r}"
+)
+capturar_paso(app, "confirmacion_de_anular_bloqueos_aceptada", paso_excel=2)
+
+app.wait_for_timeout(1500)
+mensaje_exito = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+if mensaje_exito:
+    capturar_paso(app, "mensaje_de_anulacion_realizada", paso_excel=3)
+
+app.wait_for_timeout(800)
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("1454472")
+app.wait_for_timeout(500)
+frame.get_by_role("button", name="Leer").click()
+app.wait_for_timeout(1200)
+assert obtener_modal_visible(frame, timeout_ms=3000) is None, (
+    "El bloqueo vigente deberia haberse anulado, ya no deberia aparecer el aviso"
+)
+fecha_corte_despues = frame.locator("#fechaCorteCliente").input_value()
+assert fecha_corte_despues == fecha_corte_antes, (
+    f"La fecha de corte no deberia cambiar al solo anular bloqueos (antes={fecha_corte_antes!r}, despues={fecha_corte_despues!r})"
+)
+capturar_paso(app, "bloqueos_dados_de_baja_fecha_corte_sin_cambios", paso_excel=4)
+'''
+
+CUERPOS_REALES["CP050"] = '''
+# NOTA: el registro de una extension dispara una cadena de 3 modales de
+# Confirmacion EN SECUENCIA (confirmado en vivo 22/10/2026): 1) resumen
+# "Con fecha ... se eximio de corte por N dia(s) ... Ingresa nueva
+# anulacion?", 2) "Confirma la Anulacion Temporal del corte para el
+# cliente.", 3) "Desea bloquear el corte del suministro ... por favor
+# confirmar." Las 3 deben aceptarse para que la operacion persista.
+app, frame = abrir_rf06(page, paso_excel=1)
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("15")
+app.wait_for_timeout(500)
+frame.locator("button:has-text('Leer')").first.click()
+app.wait_for_timeout(1200)
+try:
+    frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=15000)
+except Exception:
+    pass
+app.wait_for_timeout(800)
+cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=1500)
+app.wait_for_timeout(500)
+capturar_paso(app, "cliente_activo_cargado", paso_excel=1)
+
+frame.locator("#dias").click()
+frame.locator("#dias").fill("10")
+app.wait_for_timeout(500)
+frame.locator("#motivo").fill("Cliente realizó pago parcial y solicita plazo")
+app.wait_for_timeout(500)
+hoy_mas_10 = (date.today() + timedelta(days=10)).strftime("%d-%m-%Y")
+capturar_paso(app, "dias_y_motivo_ingresados", paso_excel=2)
+
+frame.get_by_role("button", name="Ingresar").click()
+app.wait_for_timeout(1200)
+mensaje1 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+assert mensaje1 is not None and "10 día" in mensaje1 and "pago parcial" in mensaje1.lower(), (
+    f"Se esperaba la confirmacion con 10 dias y el motivo ingresado: {mensaje1!r}"
+)
+capturar_paso(app, "primera_confirmacion_aceptada", paso_excel=4)
+
+app.wait_for_timeout(1200)
+mensaje2 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+assert mensaje2 is not None and "anulaci" in mensaje2.lower(), (
+    f"Se esperaba la segunda confirmacion (Anulacion Temporal): {mensaje2!r}"
+)
+capturar_paso(app, "segunda_confirmacion_aceptada", paso_excel=5)
+
+app.wait_for_timeout(1200)
+mensaje3 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+assert mensaje3 is not None and "bloquear" in mensaje3.lower(), (
+    f"Se esperaba la tercera confirmacion (bloquear el corte): {mensaje3!r}"
+)
+app.wait_for_timeout(1500)
+capturar_paso(app, "mensaje_de_operacion_realizada", paso_excel=6)
+
+boton_cancelar = frame.get_by_role("button", name="Cancelar")
+if boton_cancelar.is_enabled():
+    boton_cancelar.click()
+    app.wait_for_timeout(800)
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("15")
+app.wait_for_timeout(500)
+frame.get_by_role("button", name="Leer").click()
+app.wait_for_timeout(1200)
+cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+app.wait_for_timeout(800)
+fecha_corte_final = frame.locator("#fechaCorteCliente").input_value()
+assert fecha_corte_final == hoy_mas_10, (
+    f"La fecha de corte deberia actualizarse a {hoy_mas_10!r}, se obtuvo {fecha_corte_final!r}"
+)
+capturar_paso(app, "fecha_de_corte_actualizada", paso_excel=7)
+'''
+
+CUERPOS_REALES["CP051"] = '''
+app, frame = abrir_rf06(page, paso_excel=1)
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("781429")
+app.wait_for_timeout(500)
+frame.locator("button:has-text('Leer')").first.click()
+app.wait_for_timeout(1200)
+try:
+    frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=15000)
+except Exception:
+    pass
+app.wait_for_timeout(800)
+capturar_paso(app, "cliente_valido_cargado", paso_excel=1)
+
+frame.locator("#dias").click()
+frame.locator("#dias").fill("13")
+app.wait_for_timeout(400)
+frame.locator("#motivo").fill("Prueba de limite de dias")
+app.wait_for_timeout(400)
+capturar_paso(app, "trece_dias_ingresados", paso_excel=2)
+
+frame.get_by_role("button", name="Ingresar").click()
+app.wait_for_timeout(1200)
+mensaje_rechazo = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+assert mensaje_rechazo is not None and "12 día" in mensaje_rechazo, (
+    f"Se esperaba el rechazo por superar el maximo de 12 dias: {mensaje_rechazo!r}"
+)
+capturar_paso(app, "rechazo_por_superar_el_maximo", paso_excel=3)
+
+app.wait_for_timeout(500)
+frame.locator("#dias").click()
+frame.locator("#dias").fill("")
+frame.locator("#dias").fill("12")
+app.wait_for_timeout(400)
+capturar_paso(app, "doce_dias_valor_limite_ingresado", paso_excel=4)
+
+frame.get_by_role("button", name="Ingresar").click()
+app.wait_for_timeout(1200)
+modal = obtener_modal_visible(frame, timeout_ms=8000)
+assert modal is not None, "Se esperaba que continue el flujo de confirmacion con el valor limite"
+texto_modal = modal.inner_text()
+assert texto_modal.startswith("Confirmación") and "12 día" in texto_modal, (
+    f"Con 12 dias (limite exacto) no deberia rechazarse, deberia continuar con un modal de Confirmacion: {texto_modal!r}"
+)
+capturar_paso(app, "limite_exacto_continua_flujo_de_confirmacion", paso_excel=5)
+
+modal.get_by_role("button", name=re.compile(r"^\\s*Cancelar\\s*$", re.I)).click()
+app.wait_for_timeout(500)
+'''
+
+CUERPOS_REALES["CP052"] = '''
+# Confirmado en vivo 22/10/2026: con <=7 dias la cadena de confirmacion
+# tiene 2 pasos (se eximio... /Confirma la Anulacion Temporal...) y al
+# aceptar el 2do la operacion queda registrada sin pedir nada mas; con
+# >=8 dias aparece un 3er modal ("Desea bloquear el corte del
+# suministro ... por favor confirmar.") que es la confirmacion adicional
+# exigida por la RN.
+app, frame = abrir_rf06(page, paso_excel=1)
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("909420")
+app.wait_for_timeout(500)
+frame.locator("button:has-text('Leer')").first.click()
+app.wait_for_timeout(1200)
+try:
+    frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=15000)
+except Exception:
+    pass
+app.wait_for_timeout(800)
+cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=2000)
+app.wait_for_timeout(500)
+capturar_paso(app, "cliente_cargado_para_7_dias", paso_excel=1)
+
+frame.locator("#dias").click()
+frame.locator("#dias").fill("7")
+app.wait_for_timeout(400)
+frame.locator("#motivo").fill("Prueba de 7 días sin confirmacion adicional")
+app.wait_for_timeout(400)
+frame.get_by_role("button", name="Ingresar").click()
+app.wait_for_timeout(1200)
+
+mensaje1 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+assert mensaje1 is not None and "7 día" in mensaje1, f"Se esperaba la 1ra confirmacion con 7 dias: {mensaje1!r}"
+app.wait_for_timeout(1200)
+mensaje2 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+assert mensaje2 is not None and "anulaci" in mensaje2.lower(), f"Se esperaba la 2da confirmacion: {mensaje2!r}"
+app.wait_for_timeout(1500)
+assert obtener_modal_visible(frame, timeout_ms=3000) is None, (
+    "Con 7 dias no deberia pedirse una 3ra confirmacion adicional"
+)
+capturar_paso(app, "siete_dias_sin_confirmacion_adicional", paso_excel=3)
+
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("781429")
+app.wait_for_timeout(500)
+frame.get_by_role("button", name="Leer").click()
+app.wait_for_timeout(1200)
+try:
+    frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=15000)
+except Exception:
+    pass
+app.wait_for_timeout(800)
+assert obtener_modal_visible(frame, timeout_ms=1500) is None, "No se esperaba aviso previo para este cliente"
+capturar_paso(app, "cliente_cargado_para_8_dias", paso_excel=4)
+
+frame.locator("#dias").click()
+frame.locator("#dias").fill("8")
+app.wait_for_timeout(400)
+frame.locator("#motivo").fill("Prueba de 8 días con confirmacion adicional")
+app.wait_for_timeout(400)
+frame.get_by_role("button", name="Ingresar").click()
+app.wait_for_timeout(1200)
+
+mensaje3 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+assert mensaje3 is not None and "8 día" in mensaje3, f"Se esperaba la 1ra confirmacion con 8 dias: {mensaje3!r}"
+app.wait_for_timeout(1200)
+mensaje4 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+assert mensaje4 is not None and "anulaci" in mensaje4.lower(), f"Se esperaba la 2da confirmacion: {mensaje4!r}"
+app.wait_for_timeout(1500)
+modal_adicional = obtener_modal_visible(frame, timeout_ms=5000)
+assert modal_adicional is not None and "bloquear" in modal_adicional.inner_text().lower(), (
+    "Con 8 dias se esperaba una 3ra confirmacion adicional explicita antes de registrar"
+)
+capturar_paso(app, "ocho_dias_confirmacion_adicional_exigida", paso_excel=6)
+
+modal_adicional.get_by_role("button", name=re.compile(r"^\\s*Cancelar\\s*$", re.I)).click()
+app.wait_for_timeout(500)
+'''
+
+CUERPOS_REALES["CP045"] = '''
+app, frame = abrir_rf06(page, paso_excel=1)
+app.wait_for_timeout(1000)
+capturar_paso(app, "pantalla_inicial_sin_cliente", paso_excel=2)
+
+frame.locator("button:has-text('Leer')").first.click()
+app.wait_for_timeout(1200)
+mensaje = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=6000)
+assert mensaje is not None and "cliente" in mensaje.lower(), (
+    f"Se esperaba un mensaje pidiendo el Numero de Cliente: {mensaje!r}"
+)
+capturar_paso(app, "mensaje_numero_cliente_obligatorio", paso_excel=2)
+'''
+
+CUERPOS_REALES["CP046"] = '''
+app, frame = abrir_rf06(page, paso_excel=1)
+frame.locator("#numeroCliente").click()
+frame.locator("#numeroCliente").fill("999999999")
+app.wait_for_timeout(500)
+capturar_paso(app, "cliente_inexistente_ingresado", paso_excel=2)
+
+frame.locator("button:has-text('Leer')").first.click()
+app.wait_for_timeout(2000)
+mensaje = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+assert mensaje is not None and ("no" in mensaje.lower() and ("encontr" in mensaje.lower() or "exist" in mensaje.lower())), (
+    f"Se esperaba un mensaje de cliente no encontrado: {mensaje!r}"
+)
+capturar_paso(app, "mensaje_cliente_no_encontrado", paso_excel=3)
+
+app.wait_for_timeout(500)
+assert frame.locator("#numeroCliente").input_value() == "", "El campo deberia limpiarse para un nuevo intento"
+capturar_paso(app, "campo_limpio_para_nuevo_intento", paso_excel=3)
 '''
 
 for _cp in sorted(MATRIZ.keys(), key=lambda c: int(c[2:])):

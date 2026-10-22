@@ -511,6 +511,15 @@ def abrir_rf08(page, paso_excel=None):
     return abrir_aplicacion(page, ["Comercial", "Proveedores De Corte"], "app-proveedorcorte", paso_excel=paso_excel)
 
 
+def abrir_rf06(page, paso_excel=None):
+    # A diferencia de RF-1..05/07/08 (todas flat bajo Comercial), esta
+    # pantalla vive en una rama DISTINTA del menu: Interno > Gestion De
+    # Seguridad Xnear > Anulacion De Clientes A Corte (confirmado en vivo
+    # 22/10/2026 tras habilitarse el rol BLOQCORT). Componente real:
+    # app-bloqueocorte (coincide con el nombre del rol).
+    return abrir_aplicacion(page, ["Interno", "Gestión De Seguridad Xnear", "Anulación De Clientes A Corte"], "app-bloqueocorte", paso_excel=paso_excel)
+
+
 def obtener_modal_visible(frame, timeout_ms=4000):
     """Devuelve el locator del modal ".ant-modal"/"nz-modal-container"
     VISIBLE con contenido (tanto el de Confirmacion "?" como el de
@@ -763,7 +772,81 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP052 (RF-6 - Confirmación adicional exigida al superar 7 días de extensión): falta escribir el body real - falta exploracion en vivo.')
+            # Confirmado en vivo 22/10/2026: con <=7 dias la cadena de confirmacion
+            # tiene 2 pasos (se eximio... /Confirma la Anulacion Temporal...) y al
+            # aceptar el 2do la operacion queda registrada sin pedir nada mas; con
+            # >=8 dias aparece un 3er modal ("Desea bloquear el corte del
+            # suministro ... por favor confirmar.") que es la confirmacion adicional
+            # exigida por la RN.
+            app, frame = abrir_rf06(page, paso_excel=1)
+            frame.locator("#numeroCliente").click()
+            frame.locator("#numeroCliente").fill("909420")
+            app.wait_for_timeout(500)
+            frame.locator("button:has-text('Leer')").first.click()
+            app.wait_for_timeout(1200)
+            try:
+                frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=15000)
+            except Exception:
+                pass
+            app.wait_for_timeout(800)
+            cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=2000)
+            app.wait_for_timeout(500)
+            capturar_paso(app, "cliente_cargado_para_7_dias", paso_excel=1)
+
+            frame.locator("#dias").click()
+            frame.locator("#dias").fill("7")
+            app.wait_for_timeout(400)
+            frame.locator("#motivo").fill("Prueba de 7 días sin confirmacion adicional")
+            app.wait_for_timeout(400)
+            frame.get_by_role("button", name="Ingresar").click()
+            app.wait_for_timeout(1200)
+
+            mensaje1 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+            assert mensaje1 is not None and "7 día" in mensaje1, f"Se esperaba la 1ra confirmacion con 7 dias: {mensaje1!r}"
+            app.wait_for_timeout(1200)
+            mensaje2 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+            assert mensaje2 is not None and "anulaci" in mensaje2.lower(), f"Se esperaba la 2da confirmacion: {mensaje2!r}"
+            app.wait_for_timeout(1500)
+            assert obtener_modal_visible(frame, timeout_ms=3000) is None, (
+                "Con 7 dias no deberia pedirse una 3ra confirmacion adicional"
+            )
+            capturar_paso(app, "siete_dias_sin_confirmacion_adicional", paso_excel=3)
+
+            frame.locator("#numeroCliente").click()
+            frame.locator("#numeroCliente").fill("781429")
+            app.wait_for_timeout(500)
+            frame.get_by_role("button", name="Leer").click()
+            app.wait_for_timeout(1200)
+            try:
+                frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=15000)
+            except Exception:
+                pass
+            app.wait_for_timeout(800)
+            assert obtener_modal_visible(frame, timeout_ms=1500) is None, "No se esperaba aviso previo para este cliente"
+            capturar_paso(app, "cliente_cargado_para_8_dias", paso_excel=4)
+
+            frame.locator("#dias").click()
+            frame.locator("#dias").fill("8")
+            app.wait_for_timeout(400)
+            frame.locator("#motivo").fill("Prueba de 8 días con confirmacion adicional")
+            app.wait_for_timeout(400)
+            frame.get_by_role("button", name="Ingresar").click()
+            app.wait_for_timeout(1200)
+
+            mensaje3 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+            assert mensaje3 is not None and "8 día" in mensaje3, f"Se esperaba la 1ra confirmacion con 8 dias: {mensaje3!r}"
+            app.wait_for_timeout(1200)
+            mensaje4 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+            assert mensaje4 is not None and "anulaci" in mensaje4.lower(), f"Se esperaba la 2da confirmacion: {mensaje4!r}"
+            app.wait_for_timeout(1500)
+            modal_adicional = obtener_modal_visible(frame, timeout_ms=5000)
+            assert modal_adicional is not None and "bloquear" in modal_adicional.inner_text().lower(), (
+                "Con 8 dias se esperaba una 3ra confirmacion adicional explicita antes de registrar"
+            )
+            capturar_paso(app, "ocho_dias_confirmacion_adicional_exigida", paso_excel=6)
+
+            modal_adicional.get_by_role("button", name=re.compile(r"^\s*Cancelar\s*$", re.I)).click()
+            app.wait_for_timeout(500)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

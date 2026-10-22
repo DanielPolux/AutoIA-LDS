@@ -511,6 +511,15 @@ def abrir_rf08(page, paso_excel=None):
     return abrir_aplicacion(page, ["Comercial", "Proveedores De Corte"], "app-proveedorcorte", paso_excel=paso_excel)
 
 
+def abrir_rf06(page, paso_excel=None):
+    # A diferencia de RF-1..05/07/08 (todas flat bajo Comercial), esta
+    # pantalla vive en una rama DISTINTA del menu: Interno > Gestion De
+    # Seguridad Xnear > Anulacion De Clientes A Corte (confirmado en vivo
+    # 22/10/2026 tras habilitarse el rol BLOQCORT). Componente real:
+    # app-bloqueocorte (coincide con el nombre del rol).
+    return abrir_aplicacion(page, ["Interno", "Gestión De Seguridad Xnear", "Anulación De Clientes A Corte"], "app-bloqueocorte", paso_excel=paso_excel)
+
+
 def obtener_modal_visible(frame, timeout_ms=4000):
     """Devuelve el locator del modal ".ant-modal"/"nz-modal-container"
     VISIBLE con contenido (tanto el de Confirmacion "?" como el de
@@ -763,7 +772,53 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP051 (RF-6 - Rechazo por exceder el máximo de días permitido según el rol): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf06(page, paso_excel=1)
+            frame.locator("#numeroCliente").click()
+            frame.locator("#numeroCliente").fill("781429")
+            app.wait_for_timeout(500)
+            frame.locator("button:has-text('Leer')").first.click()
+            app.wait_for_timeout(1200)
+            try:
+                frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=15000)
+            except Exception:
+                pass
+            app.wait_for_timeout(800)
+            capturar_paso(app, "cliente_valido_cargado", paso_excel=1)
+
+            frame.locator("#dias").click()
+            frame.locator("#dias").fill("13")
+            app.wait_for_timeout(400)
+            frame.locator("#motivo").fill("Prueba de limite de dias")
+            app.wait_for_timeout(400)
+            capturar_paso(app, "trece_dias_ingresados", paso_excel=2)
+
+            frame.get_by_role("button", name="Ingresar").click()
+            app.wait_for_timeout(1200)
+            mensaje_rechazo = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+            assert mensaje_rechazo is not None and "12 día" in mensaje_rechazo, (
+                f"Se esperaba el rechazo por superar el maximo de 12 dias: {mensaje_rechazo!r}"
+            )
+            capturar_paso(app, "rechazo_por_superar_el_maximo", paso_excel=3)
+
+            app.wait_for_timeout(500)
+            frame.locator("#dias").click()
+            frame.locator("#dias").fill("")
+            frame.locator("#dias").fill("12")
+            app.wait_for_timeout(400)
+            capturar_paso(app, "doce_dias_valor_limite_ingresado", paso_excel=4)
+
+            frame.get_by_role("button", name="Ingresar").click()
+            app.wait_for_timeout(1200)
+            modal = obtener_modal_visible(frame, timeout_ms=8000)
+            assert modal is not None, "Se esperaba que continue el flujo de confirmacion con el valor limite"
+            texto_modal = modal.inner_text()
+            assert texto_modal.startswith("Confirmación") and "12 día" in texto_modal, (
+                f"Con 12 dias (limite exacto) no deberia rechazarse, deberia continuar con un modal de Confirmacion: {texto_modal!r}"
+            )
+            capturar_paso(app, "limite_exacto_continua_flujo_de_confirmacion", paso_excel=5)
+
+            modal.get_by_role("button", name=re.compile(r"^\s*Cancelar\s*$", re.I)).click()
+            app.wait_for_timeout(500)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

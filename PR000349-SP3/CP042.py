@@ -511,6 +511,15 @@ def abrir_rf08(page, paso_excel=None):
     return abrir_aplicacion(page, ["Comercial", "Proveedores De Corte"], "app-proveedorcorte", paso_excel=paso_excel)
 
 
+def abrir_rf06(page, paso_excel=None):
+    # A diferencia de RF-1..05/07/08 (todas flat bajo Comercial), esta
+    # pantalla vive en una rama DISTINTA del menu: Interno > Gestion De
+    # Seguridad Xnear > Anulacion De Clientes A Corte (confirmado en vivo
+    # 22/10/2026 tras habilitarse el rol BLOQCORT). Componente real:
+    # app-bloqueocorte (coincide con el nombre del rol).
+    return abrir_aplicacion(page, ["Interno", "Gestión De Seguridad Xnear", "Anulación De Clientes A Corte"], "app-bloqueocorte", paso_excel=paso_excel)
+
+
 def obtener_modal_visible(frame, timeout_ms=4000):
     """Devuelve el locator del modal ".ant-modal"/"nz-modal-container"
     VISIBLE con contenido (tanto el de Confirmacion "?" como el de
@@ -763,7 +772,47 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP042 (RF-5 - Anulación exitosa de un cargo con confirmación): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf05(page, paso_excel=1)
+            frame.locator("#numeroCliente").click()
+            frame.locator("#numeroCliente").fill("909420")
+            app.wait_for_timeout(500)
+            frame.locator("button:has-text('Buscar')").first.click()
+            app.wait_for_timeout(1000)
+            tabla = frame.locator("nz-table, table").first
+            filas_reales(tabla).first.wait_for(state="visible", timeout=10000)
+            capturar_paso(app, "cliente_con_cargo_pendiente_cargado", paso_excel=1)
+
+            filas = filas_reales(tabla)
+            cantidad_pendientes_antes = len([1 for i in range(filas.count()) if "Activo" in filas.nth(i).inner_text()])
+            fila_pendiente = [filas.nth(i) for i in range(filas.count()) if "Activo" in filas.nth(i).inner_text()][0]
+            fila_pendiente.dblclick()
+            app.wait_for_timeout(800)
+            capturar_paso(app, "cargo_pendiente_seleccionado", paso_excel=2)
+
+            frame.locator("#motivo").fill("Anulación por error de registro")
+            app.wait_for_timeout(500)
+            capturar_paso(app, "motivo_ingresado", paso_excel=2)
+
+            frame.get_by_role("button", name="Anular").click()
+            app.wait_for_timeout(1200)
+            mensaje = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=6000)
+            assert mensaje is not None and "anulaci" in mensaje.lower(), f"Se esperaba la confirmacion de anulacion: {mensaje!r}"
+            capturar_paso(app, "confirmacion_de_anulacion_aceptada", paso_excel=4)
+
+            app.wait_for_timeout(2000)
+            try:
+                frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=10000)
+            except Exception:
+                pass
+            app.wait_for_timeout(1000)
+
+            assert frame.locator("#motivo").input_value() == "", "El Motivo deberia quedar vacio tras anular"
+            filas_despues = filas_reales(tabla)
+            cantidad_pendientes_despues = len([1 for i in range(filas_despues.count()) if "Activo" in filas_despues.nth(i).inner_text()])
+            assert cantidad_pendientes_despues == cantidad_pendientes_antes - 1, (
+                f"La lista deberia refrescarse mostrando un pendiente menos (antes={{cantidad_pendientes_antes}}, despues={{cantidad_pendientes_despues}})"
+            )
+            capturar_paso(app, "lista_refrescada_cargo_ya_no_pendiente", paso_excel=5)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

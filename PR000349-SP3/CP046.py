@@ -511,6 +511,15 @@ def abrir_rf08(page, paso_excel=None):
     return abrir_aplicacion(page, ["Comercial", "Proveedores De Corte"], "app-proveedorcorte", paso_excel=paso_excel)
 
 
+def abrir_rf06(page, paso_excel=None):
+    # A diferencia de RF-1..05/07/08 (todas flat bajo Comercial), esta
+    # pantalla vive en una rama DISTINTA del menu: Interno > Gestion De
+    # Seguridad Xnear > Anulacion De Clientes A Corte (confirmado en vivo
+    # 22/10/2026 tras habilitarse el rol BLOQCORT). Componente real:
+    # app-bloqueocorte (coincide con el nombre del rol).
+    return abrir_aplicacion(page, ["Interno", "Gestión De Seguridad Xnear", "Anulación De Clientes A Corte"], "app-bloqueocorte", paso_excel=paso_excel)
+
+
 def obtener_modal_visible(frame, timeout_ms=4000):
     """Devuelve el locator del modal ".ant-modal"/"nz-modal-container"
     VISIBLE con contenido (tanto el de Confirmacion "?" como el de
@@ -763,7 +772,23 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP046 (RF-6 - Cliente no encontrado): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf06(page, paso_excel=1)
+            frame.locator("#numeroCliente").click()
+            frame.locator("#numeroCliente").fill("999999999")
+            app.wait_for_timeout(500)
+            capturar_paso(app, "cliente_inexistente_ingresado", paso_excel=2)
+
+            frame.locator("button:has-text('Leer')").first.click()
+            app.wait_for_timeout(2000)
+            mensaje = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+            assert mensaje is not None and ("no" in mensaje.lower() and ("encontr" in mensaje.lower() or "exist" in mensaje.lower())), (
+                f"Se esperaba un mensaje de cliente no encontrado: {mensaje!r}"
+            )
+            capturar_paso(app, "mensaje_cliente_no_encontrado", paso_excel=3)
+
+            app.wait_for_timeout(500)
+            assert frame.locator("#numeroCliente").input_value() == "", "El campo deberia limpiarse para un nuevo intento"
+            capturar_paso(app, "campo_limpio_para_nuevo_intento", paso_excel=3)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

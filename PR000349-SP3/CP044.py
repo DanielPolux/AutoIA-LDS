@@ -511,6 +511,15 @@ def abrir_rf08(page, paso_excel=None):
     return abrir_aplicacion(page, ["Comercial", "Proveedores De Corte"], "app-proveedorcorte", paso_excel=paso_excel)
 
 
+def abrir_rf06(page, paso_excel=None):
+    # A diferencia de RF-1..05/07/08 (todas flat bajo Comercial), esta
+    # pantalla vive en una rama DISTINTA del menu: Interno > Gestion De
+    # Seguridad Xnear > Anulacion De Clientes A Corte (confirmado en vivo
+    # 22/10/2026 tras habilitarse el rol BLOQCORT). Componente real:
+    # app-bloqueocorte (coincide con el nombre del rol).
+    return abrir_aplicacion(page, ["Interno", "Gestión De Seguridad Xnear", "Anulación De Clientes A Corte"], "app-bloqueocorte", paso_excel=paso_excel)
+
+
 def obtener_modal_visible(frame, timeout_ms=4000):
     """Devuelve el locator del modal ".ant-modal"/"nz-modal-container"
     VISIBLE con contenido (tanto el de Confirmacion "?" como el de
@@ -763,7 +772,35 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP044 (RF-6 - Búsqueda exitosa de cliente y cálculo del estado de corte): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf06(page, paso_excel=1)
+            frame.locator("#numeroCliente").click()
+            frame.locator("#numeroCliente").fill("15")
+            app.wait_for_timeout(500)
+            capturar_paso(app, "cliente_15_ingresado", paso_excel=1)
+
+            frame.locator("button:has-text('Leer')").first.click()
+            app.wait_for_timeout(1200)
+            try:
+                frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=15000)
+            except Exception:
+                pass
+            app.wait_for_timeout(1000)
+            assert obtener_modal_visible(frame, timeout_ms=1500) is None, (
+                "No se esperaba ningun aviso (sin anulacion previa vigente para este cliente)"
+            )
+            capturar_paso(app, "datos_del_cliente_cargados", paso_excel=2)
+
+            assert frame.locator("#nombreCliente").input_value() != "", "El nombre del cliente deberia cargarse"
+            texto = frame.locator("body").inner_text()
+            lineas = [l.strip() for l in texto.split("\n") if l.strip()]
+            estado_corte = lineas[lineas.index("Estado Corte") + 1] if "Estado Corte" in lineas else None
+            assert estado_corte == "CON SUMINISTRO", f"Se esperaba Estado Corte=CON SUMINISTRO, se obtuvo {estado_corte!r}"
+            capturar_paso(app, "estado_corte_con_suministro", paso_excel=3)
+
+            assert frame.get_by_role("button", name="Ingresar").is_enabled(), (
+                "La seccion de registro (Ingresar) deberia quedar habilitada"
+            )
+            capturar_paso(app, "seccion_de_registro_habilitada", paso_excel=4)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

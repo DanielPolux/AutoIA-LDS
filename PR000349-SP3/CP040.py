@@ -511,6 +511,15 @@ def abrir_rf08(page, paso_excel=None):
     return abrir_aplicacion(page, ["Comercial", "Proveedores De Corte"], "app-proveedorcorte", paso_excel=paso_excel)
 
 
+def abrir_rf06(page, paso_excel=None):
+    # A diferencia de RF-1..05/07/08 (todas flat bajo Comercial), esta
+    # pantalla vive en una rama DISTINTA del menu: Interno > Gestion De
+    # Seguridad Xnear > Anulacion De Clientes A Corte (confirmado en vivo
+    # 22/10/2026 tras habilitarse el rol BLOQCORT). Componente real:
+    # app-bloqueocorte (coincide con el nombre del rol).
+    return abrir_aplicacion(page, ["Interno", "Gestión De Seguridad Xnear", "Anulación De Clientes A Corte"], "app-bloqueocorte", paso_excel=paso_excel)
+
+
 def obtener_modal_visible(frame, timeout_ms=4000):
     """Devuelve el locator del modal ".ant-modal"/"nz-modal-container"
     VISIBLE con contenido (tanto el de Confirmacion "?" como el de
@@ -763,7 +772,44 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP040 (RF-5 - Selección exclusiva de un cargo y bloqueo de cargos ya anulados): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf05(page, paso_excel=1)
+            frame.locator("#numeroCliente").click()
+            frame.locator("#numeroCliente").fill("909420")
+            app.wait_for_timeout(500)
+            frame.locator("button:has-text('Buscar')").first.click()
+            app.wait_for_timeout(1000)
+            tabla = frame.locator("nz-table, table").first
+            filas_reales(tabla).first.wait_for(state="visible", timeout=10000)
+            capturar_paso(app, "cliente_con_cargos_pendientes_y_anulado", paso_excel=1)
+
+            filas = filas_reales(tabla)
+            filas_pendientes = [filas.nth(i) for i in range(filas.count()) if "Activo" in filas.nth(i).inner_text()]
+            fila_anulada = [filas.nth(i) for i in range(filas.count()) if "Anulado" in filas.nth(i).inner_text()][0]
+            assert len(filas_pendientes) >= 2, "Se esperaban al menos 2 cargos pendientes para esta verificacion"
+
+            filas_pendientes[0].dblclick()
+            app.wait_for_timeout(800)
+            assert "selected-row" in (filas_pendientes[0].get_attribute("class") or ""), "El primer cargo deberia quedar marcado"
+            assert frame.locator("#motivo").is_enabled() and frame.get_by_role("button", name="Anular").is_enabled(), (
+                "Motivo y Anular deberian habilitarse al marcar un cargo"
+            )
+            capturar_paso(app, "primer_cargo_pendiente_marcado", paso_excel=2)
+
+            filas_pendientes[1].dblclick()
+            app.wait_for_timeout(800)
+            assert "selected-row" not in (filas_pendientes[0].get_attribute("class") or ""), (
+                "La seleccion anterior deberia quitarse automaticamente"
+            )
+            assert "selected-row" in (filas_pendientes[1].get_attribute("class") or ""), "La seleccion deberia trasladarse al nuevo cargo"
+            capturar_paso(app, "seleccion_trasladada_a_otro_cargo", paso_excel=3)
+
+            fila_anulada.dblclick(timeout=5000)
+            app.wait_for_timeout(800)
+            assert "selected-row" not in (fila_anulada.get_attribute("class") or ""), "El cargo ya anulado no deberia poder seleccionarse"
+            assert "selected-row" in (filas_pendientes[1].get_attribute("class") or ""), (
+                "La seleccion del cargo pendiente deberia mantenerse intacta"
+            )
+            capturar_paso(app, "cargo_ya_anulado_no_seleccionable", paso_excel=4)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

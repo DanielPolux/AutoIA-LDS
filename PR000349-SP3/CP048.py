@@ -511,6 +511,15 @@ def abrir_rf08(page, paso_excel=None):
     return abrir_aplicacion(page, ["Comercial", "Proveedores De Corte"], "app-proveedorcorte", paso_excel=paso_excel)
 
 
+def abrir_rf06(page, paso_excel=None):
+    # A diferencia de RF-1..05/07/08 (todas flat bajo Comercial), esta
+    # pantalla vive en una rama DISTINTA del menu: Interno > Gestion De
+    # Seguridad Xnear > Anulacion De Clientes A Corte (confirmado en vivo
+    # 22/10/2026 tras habilitarse el rol BLOQCORT). Componente real:
+    # app-bloqueocorte (coincide con el nombre del rol).
+    return abrir_aplicacion(page, ["Interno", "Gestión De Seguridad Xnear", "Anulación De Clientes A Corte"], "app-bloqueocorte", paso_excel=paso_excel)
+
+
 def obtener_modal_visible(frame, timeout_ms=4000):
     """Devuelve el locator del modal ".ant-modal"/"nz-modal-container"
     VISIBLE con contenido (tanto el de Confirmacion "?" como el de
@@ -763,7 +772,40 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP048 (RF-6 - Cálculo de la nueva fecha de corte al ingresar los días de extensión): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf06(page, paso_excel=1)
+            frame.locator("#numeroCliente").click()
+            frame.locator("#numeroCliente").fill("1454472")
+            app.wait_for_timeout(500)
+            frame.locator("button:has-text('Leer')").first.click()
+            app.wait_for_timeout(1200)
+            cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+            app.wait_for_timeout(800)
+            capturar_paso(app, "cliente_con_fecha_de_corte_vigente_posterior_cargado", paso_excel=1)
+
+            frame.locator("#dias").click()
+            frame.locator("#dias").fill("5")
+            app.wait_for_timeout(800)
+            texto = frame.locator("body").inner_text()
+            lineas = [l.strip() for l in texto.split("\n") if l.strip()]
+            nueva_fecha = lineas[lineas.index("Nueva Fecha Corte") + 1] if "Nueva Fecha Corte" in lineas else None
+            hoy_mas_5 = (date.today() + timedelta(days=5)).strftime("%d/%m/%Y")
+            assert nueva_fecha == hoy_mas_5, f"Se esperaba Nueva Fecha Corte={{hoy_mas_5}}, se obtuvo {{nueva_fecha!r}}"
+            capturar_paso(app, "nueva_fecha_corte_calculada", paso_excel=2)
+
+            frame.locator("#motivo").fill("Cliente realizó pago parcial y solicita plazo breve")
+            app.wait_for_timeout(500)
+            frame.get_by_role("button", name="Ingresar").click()
+            app.wait_for_timeout(1200)
+            modal = obtener_modal_visible(frame, timeout_ms=8000)
+            assert modal is not None, "Se esperaba el mensaje de confirmacion"
+            texto_modal = modal.inner_text()
+            assert "no es posterior a la fecha de corte vigente" in texto_modal.lower(), (
+                f"Se esperaba la advertencia de que la nueva fecha no supera la vigente: {{texto_modal!r}}"
+            )
+            capturar_paso(app, "advertencia_fecha_no_posterior_a_vigente", paso_excel=4)
+
+            modal.get_by_role("button", name=re.compile(r"^\s*Cancelar\s*$", re.I)).click()
+            app.wait_for_timeout(500)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

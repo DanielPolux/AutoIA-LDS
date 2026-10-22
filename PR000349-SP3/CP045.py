@@ -511,6 +511,15 @@ def abrir_rf08(page, paso_excel=None):
     return abrir_aplicacion(page, ["Comercial", "Proveedores De Corte"], "app-proveedorcorte", paso_excel=paso_excel)
 
 
+def abrir_rf06(page, paso_excel=None):
+    # A diferencia de RF-1..05/07/08 (todas flat bajo Comercial), esta
+    # pantalla vive en una rama DISTINTA del menu: Interno > Gestion De
+    # Seguridad Xnear > Anulacion De Clientes A Corte (confirmado en vivo
+    # 22/10/2026 tras habilitarse el rol BLOQCORT). Componente real:
+    # app-bloqueocorte (coincide con el nombre del rol).
+    return abrir_aplicacion(page, ["Interno", "Gestión De Seguridad Xnear", "Anulación De Clientes A Corte"], "app-bloqueocorte", paso_excel=paso_excel)
+
+
 def obtener_modal_visible(frame, timeout_ms=4000):
     """Devuelve el locator del modal ".ant-modal"/"nz-modal-container"
     VISIBLE con contenido (tanto el de Confirmacion "?" como el de
@@ -763,7 +772,17 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP045 (RF-6 - Validación de Nro. de Cliente obligatorio): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf06(page, paso_excel=1)
+            app.wait_for_timeout(1000)
+            capturar_paso(app, "pantalla_inicial_sin_cliente", paso_excel=2)
+
+            frame.locator("button:has-text('Leer')").first.click()
+            app.wait_for_timeout(1200)
+            mensaje = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=6000)
+            assert mensaje is not None and "cliente" in mensaje.lower(), (
+                f"Se esperaba un mensaje pidiendo el Numero de Cliente: {mensaje!r}"
+            )
+            capturar_paso(app, "mensaje_numero_cliente_obligatorio", paso_excel=2)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

@@ -511,6 +511,15 @@ def abrir_rf08(page, paso_excel=None):
     return abrir_aplicacion(page, ["Comercial", "Proveedores De Corte"], "app-proveedorcorte", paso_excel=paso_excel)
 
 
+def abrir_rf06(page, paso_excel=None):
+    # A diferencia de RF-1..05/07/08 (todas flat bajo Comercial), esta
+    # pantalla vive en una rama DISTINTA del menu: Interno > Gestion De
+    # Seguridad Xnear > Anulacion De Clientes A Corte (confirmado en vivo
+    # 22/10/2026 tras habilitarse el rol BLOQCORT). Componente real:
+    # app-bloqueocorte (coincide con el nombre del rol).
+    return abrir_aplicacion(page, ["Interno", "Gestión De Seguridad Xnear", "Anulación De Clientes A Corte"], "app-bloqueocorte", paso_excel=paso_excel)
+
+
 def obtener_modal_visible(frame, timeout_ms=4000):
     """Devuelve el locator del modal ".ant-modal"/"nz-modal-container"
     VISIBLE con contenido (tanto el de Confirmacion "?" como el de
@@ -763,7 +772,87 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP058 (RF-7 - Validación de integridad del conjunto de rangos al Actualizar): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf07(page, paso_excel=1)
+            app.wait_for_timeout(1500)
+            tabla = frame.locator("nz-table, table").first
+            filas_reales(tabla).first.wait_for(state="visible", timeout=8000)
+
+            def _editar_fila_y_actualizar(nuevo_inicial=None, nuevo_final=None):
+                fila = filas_reales(tabla).first
+                fila.click()
+                app.wait_for_timeout(800)
+                if nuevo_inicial is not None:
+                    campo_pi = frame.locator("#potenciaInicial")
+                    campo_pi.click()
+                    campo_pi.fill("")
+                    campo_pi.fill(nuevo_inicial)
+                if nuevo_final is not None:
+                    campo_pf = frame.locator("#potenciaFinal")
+                    campo_pf.click()
+                    campo_pf.fill("")
+                    campo_pf.fill(nuevo_final)
+                app.wait_for_timeout(500)
+                frame.locator("button:has-text('Modificar')").first.click()
+                app.wait_for_timeout(1000)
+                cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=4000)
+                app.wait_for_timeout(800)
+                frame.locator("button:has-text('Actualizar')").first.click()
+                app.wait_for_timeout(1200)
+                cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=4000)
+                app.wait_for_timeout(1200)
+                return cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+
+            # Caso 1: primer rango no comienza en 0
+            mensaje1 = _editar_fila_y_actualizar(nuevo_inicial="50.00")
+            assert mensaje1 is not None, "Caso 1: se esperaba un mensaje de inconsistencia (no comienza en cero)"
+            capturar_paso(app, "caso1_mensaje_no_comienza_en_cero", paso_excel=1)
+            frame.locator("button:has-text('Cancelar')").last.click()
+            app.wait_for_timeout(1500)
+            filas_reales(tabla).first.wait_for(state="visible", timeout=8000)
+
+            # Caso 2: ultimo rango no llega al tope
+            mensaje2 = _editar_fila_y_actualizar(nuevo_final="500.00")
+            assert mensaje2 is not None, "Caso 2: se esperaba un mensaje de inconsistencia (no llega al tope)"
+            capturar_paso(app, "caso2_mensaje_no_llega_al_tope", paso_excel=2)
+            frame.locator("button:has-text('Cancelar')").last.click()
+            app.wait_for_timeout(1500)
+            filas_reales(tabla).first.wait_for(state="visible", timeout=8000)
+
+            # Caso 3: huecos (rango existente 0-150, mas un rango nuevo 200-300 sin cubrir 150-200)
+            fila = filas_reales(tabla).first
+            fila.click()
+            app.wait_for_timeout(800)
+            frame.locator("#potenciaFinal").click()
+            frame.locator("#potenciaFinal").fill("")
+            frame.locator("#potenciaFinal").fill("150.00")
+            app.wait_for_timeout(500)
+            frame.locator("button:has-text('Modificar')").first.click()
+            app.wait_for_timeout(1000)
+            cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=4000)
+            app.wait_for_timeout(800)
+
+            frame.locator("button:has-text('Nuevo rango')").first.click()
+            app.wait_for_timeout(800)
+            frame.locator("#potenciaInicial").click()
+            frame.locator("#potenciaInicial").fill("200.00")
+            frame.locator("#potenciaFinal").click()
+            frame.locator("#potenciaFinal").fill("300.00")
+            app.wait_for_timeout(500)
+            frame.locator("button:has-text('Ingresar')").first.click()
+            app.wait_for_timeout(1200)
+            cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=4000)
+            app.wait_for_timeout(800)
+            capturar_paso(app, "caso3_rangos_con_hueco_configurados", paso_excel=3)
+
+            frame.locator("button:has-text('Actualizar')").first.click()
+            app.wait_for_timeout(1200)
+            cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=4000)
+            app.wait_for_timeout(1200)
+            mensaje3 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+            assert mensaje3 is not None, "Caso 3: se esperaba un mensaje de inconsistencia (hueco entre rangos)"
+            capturar_paso(app, "caso3_mensaje_hueco_entre_rangos", paso_excel=3)
+            frame.locator("button:has-text('Cancelar')").last.click()
+            app.wait_for_timeout(1000)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

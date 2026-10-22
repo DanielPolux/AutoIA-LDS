@@ -511,6 +511,15 @@ def abrir_rf08(page, paso_excel=None):
     return abrir_aplicacion(page, ["Comercial", "Proveedores De Corte"], "app-proveedorcorte", paso_excel=paso_excel)
 
 
+def abrir_rf06(page, paso_excel=None):
+    # A diferencia de RF-1..05/07/08 (todas flat bajo Comercial), esta
+    # pantalla vive en una rama DISTINTA del menu: Interno > Gestion De
+    # Seguridad Xnear > Anulacion De Clientes A Corte (confirmado en vivo
+    # 22/10/2026 tras habilitarse el rol BLOQCORT). Componente real:
+    # app-bloqueocorte (coincide con el nombre del rol).
+    return abrir_aplicacion(page, ["Interno", "Gestión De Seguridad Xnear", "Anulación De Clientes A Corte"], "app-bloqueocorte", paso_excel=paso_excel)
+
+
 def obtener_modal_visible(frame, timeout_ms=4000):
     """Devuelve el locator del modal ".ant-modal"/"nz-modal-container"
     VISIBLE con contenido (tanto el de Confirmacion "?" como el de
@@ -763,7 +772,74 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP050 (RF-6 - Registro de extensión de bloqueo con días válidos y motivo): falta escribir el body real - falta exploracion en vivo.')
+            # NOTA: el registro de una extension dispara una cadena de 3 modales de
+            # Confirmacion EN SECUENCIA (confirmado en vivo 22/10/2026): 1) resumen
+            # "Con fecha ... se eximio de corte por N dia(s) ... Ingresa nueva
+            # anulacion?", 2) "Confirma la Anulacion Temporal del corte para el
+            # cliente.", 3) "Desea bloquear el corte del suministro ... por favor
+            # confirmar." Las 3 deben aceptarse para que la operacion persista.
+            app, frame = abrir_rf06(page, paso_excel=1)
+            frame.locator("#numeroCliente").click()
+            frame.locator("#numeroCliente").fill("15")
+            app.wait_for_timeout(500)
+            frame.locator("button:has-text('Leer')").first.click()
+            app.wait_for_timeout(1200)
+            try:
+                frame.locator("nz-spin, .ant-spin-spinning").first.wait_for(state="hidden", timeout=15000)
+            except Exception:
+                pass
+            app.wait_for_timeout(800)
+            cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=1500)
+            app.wait_for_timeout(500)
+            capturar_paso(app, "cliente_activo_cargado", paso_excel=1)
+
+            frame.locator("#dias").click()
+            frame.locator("#dias").fill("10")
+            app.wait_for_timeout(500)
+            frame.locator("#motivo").fill("Cliente realizó pago parcial y solicita plazo")
+            app.wait_for_timeout(500)
+            hoy_mas_10 = (date.today() + timedelta(days=10)).strftime("%d-%m-%Y")
+            capturar_paso(app, "dias_y_motivo_ingresados", paso_excel=2)
+
+            frame.get_by_role("button", name="Ingresar").click()
+            app.wait_for_timeout(1200)
+            mensaje1 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+            assert mensaje1 is not None and "10 día" in mensaje1 and "pago parcial" in mensaje1.lower(), (
+                f"Se esperaba la confirmacion con 10 dias y el motivo ingresado: {mensaje1!r}"
+            )
+            capturar_paso(app, "primera_confirmacion_aceptada", paso_excel=4)
+
+            app.wait_for_timeout(1200)
+            mensaje2 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+            assert mensaje2 is not None and "anulaci" in mensaje2.lower(), (
+                f"Se esperaba la segunda confirmacion (Anulacion Temporal): {mensaje2!r}"
+            )
+            capturar_paso(app, "segunda_confirmacion_aceptada", paso_excel=5)
+
+            app.wait_for_timeout(1200)
+            mensaje3 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=8000)
+            assert mensaje3 is not None and "bloquear" in mensaje3.lower(), (
+                f"Se esperaba la tercera confirmacion (bloquear el corte): {mensaje3!r}"
+            )
+            app.wait_for_timeout(1500)
+            capturar_paso(app, "mensaje_de_operacion_realizada", paso_excel=6)
+
+            boton_cancelar = frame.get_by_role("button", name="Cancelar")
+            if boton_cancelar.is_enabled():
+                boton_cancelar.click()
+                app.wait_for_timeout(800)
+            frame.locator("#numeroCliente").click()
+            frame.locator("#numeroCliente").fill("15")
+            app.wait_for_timeout(500)
+            frame.get_by_role("button", name="Leer").click()
+            app.wait_for_timeout(1200)
+            cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+            app.wait_for_timeout(800)
+            fecha_corte_final = frame.locator("#fechaCorteCliente").input_value()
+            assert fecha_corte_final == hoy_mas_10, (
+                f"La fecha de corte deberia actualizarse a {hoy_mas_10!r}, se obtuvo {fecha_corte_final!r}"
+            )
+            capturar_paso(app, "fecha_de_corte_actualizada", paso_excel=7)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

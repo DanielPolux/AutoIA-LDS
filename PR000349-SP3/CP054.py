@@ -511,6 +511,15 @@ def abrir_rf08(page, paso_excel=None):
     return abrir_aplicacion(page, ["Comercial", "Proveedores De Corte"], "app-proveedorcorte", paso_excel=paso_excel)
 
 
+def abrir_rf06(page, paso_excel=None):
+    # A diferencia de RF-1..05/07/08 (todas flat bajo Comercial), esta
+    # pantalla vive en una rama DISTINTA del menu: Interno > Gestion De
+    # Seguridad Xnear > Anulacion De Clientes A Corte (confirmado en vivo
+    # 22/10/2026 tras habilitarse el rol BLOQCORT). Componente real:
+    # app-bloqueocorte (coincide con el nombre del rol).
+    return abrir_aplicacion(page, ["Interno", "Gestión De Seguridad Xnear", "Anulación De Clientes A Corte"], "app-bloqueocorte", paso_excel=paso_excel)
+
+
 def obtener_modal_visible(frame, timeout_ms=4000):
     """Devuelve el locator del modal ".ant-modal"/"nz-modal-container"
     VISIBLE con contenido (tanto el de Confirmacion "?" como el de
@@ -763,7 +772,54 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP054 (RF-7 - Cambio de Tipo de Red con cambios pendientes sin guardar): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf07(page, paso_excel=1)
+            app.wait_for_timeout(1500)
+            tabla = frame.locator("nz-table, table").first
+            filas_reales(tabla).first.wait_for(state="visible", timeout=8000)
+
+            fila = filas_reales(tabla).first
+            fila.click()
+            app.wait_for_timeout(800)
+            campo_pf = frame.locator("#potenciaFinal")
+            campo_pf.click()
+            campo_pf.fill("")
+            campo_pf.fill("888888888.88")
+            app.wait_for_timeout(500)
+            capturar_paso(app, "potencia_final_modificada_sin_guardar", paso_excel=1)
+
+            frame.locator("button:has-text('Modificar')").first.click()
+            app.wait_for_timeout(1200)
+            cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=4000)
+            app.wait_for_timeout(800)
+            texto_con_pendiente = tabla.inner_text()
+            assert "888,888,888.88" in texto_con_pendiente or "888888888.88" in texto_con_pendiente, (
+                "Se esperaba que el cambio pendiente (Potencia Final 888888888.88) quede en la lista en memoria"
+            )
+            capturar_paso(app, "cambio_pendiente_sin_guardar", paso_excel=1)
+
+            radio_subterranea = frame.get_by_text(re.compile(r"^\s*Subterr\u00e1nea\s*$", re.I))
+            radio_subterranea.click()
+            app.wait_for_timeout(1200)
+            modal = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S))
+            assert modal.count() > 0, "Se esperaba un mensaje de confirmacion al cambiar de Tipo de Red con cambios pendientes"
+            texto_modal = modal.first.inner_text()
+            assert "perder" in texto_modal.lower(), f"Se esperaba el mensaje de advertencia de perdida de cambios: {texto_modal!r}"
+            capturar_paso(app, "confirmacion_cambio_tipo_red_con_pendientes", paso_excel=1)
+
+            modal.first.get_by_role("button", name=re.compile("cancelar", re.I)).click()
+            app.wait_for_timeout(1200)
+            capturar_paso(app, "cancelado_vuelve_a_aerea", paso_excel=1)
+
+            radio_aerea_checked = frame.locator("input[type=radio]").first.is_checked()
+            assert radio_aerea_checked, "El selector deberia volver a mostrar Aerea marcada tras cancelar"
+            texto_tras_cancelar = tabla.inner_text()
+            assert "888,888,888.88" in texto_tras_cancelar or "888888888.88" in texto_tras_cancelar, (
+                "La lista deberia conservar el cambio pendiente tras cancelar, sin recargar"
+            )
+            capturar_paso(app, "lista_conserva_cambio_pendiente", paso_excel=1)
+
+            frame.locator("button:has-text('Cancelar')").first.click()
+            app.wait_for_timeout(500)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True
