@@ -763,7 +763,62 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP023 (RF-3 - Validación de Corte [S/N] y sus Días de espera): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf03(page, paso_excel=1)
+            app.wait_for_timeout(1000)
+            frame.locator("button:has-text('Insertar Fila')").first.click()
+            app.wait_for_timeout(800)
+            frame.locator("#accionRealiza").click()
+            frame.locator("#accionRealiza").fill("30")
+            app.wait_for_timeout(300)
+
+            campo_corte = frame.locator("#corte")
+            campo_dias_corte = frame.locator("#diasEsperaCorte")
+
+            # Caso A: Corte = N
+            campo_corte.click()
+            campo_corte.fill("N")
+            app.wait_for_timeout(800)
+            assert campo_dias_corte.input_value() == "0", f"Dias de Corte deberia fijarse en 0 con Corte=N, quedo: {campo_dias_corte.input_value()!r}"
+            assert not campo_dias_corte.is_enabled(), "Dias de Corte deberia quedar deshabilitado con Corte=N"
+            capturar_paso(app, "casoA_corte_N_dias_fijado_en_0", paso_excel=1)
+
+            # Caso B: Corte = S con Dias = 0 - HALLAZGO: en este ambiente NO se
+            # acepta sin error como asume la matriz; da el mismo mensaje generico
+            # de datos incompletos que Inspeccion (ver nota arriba de CP022/023).
+            campo_corte.click()
+            campo_corte.fill("")
+            campo_corte.fill("S")
+            app.wait_for_timeout(800)
+            assert campo_dias_corte.is_enabled(), "Dias de Corte deberia habilitarse con Corte=S"
+            frame.locator("#inspeccion").click()
+            frame.locator("#inspeccion").fill("N")
+            app.wait_for_timeout(500)
+            capturar_paso(app, "casoB_corte_S_dias_en_0", paso_excel=1)
+
+            frame.locator("button:has-text('Actualizar')").first.click()
+            app.wait_for_timeout(1200)
+            mensajeB = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+            capturar_paso(app, "casoB_resultado_real_dias_corte_en_0", paso_excel=2)
+            assert mensajeB is not None and "complet" in mensajeB.lower(), (
+                f"Caso B (Corte=S, Dias=0): la matriz asume que se acepta sin error, pero en este ambiente "
+                f"se obtuvo: {mensajeB!r} (si esto cambia, revisar - podria ser que ahora SI distinga Corte de Inspeccion)"
+            )
+
+            # Caso C: Corte = X (invalido)
+            campo_corte.click()
+            campo_corte.fill("")
+            campo_corte.type("X", delay=100)
+            frame.locator("#inspeccion").click()
+            app.wait_for_timeout(1000)
+            mensajeC = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+            assert mensajeC is not None and "s o n" in mensajeC.lower(), (
+                f"Caso C (Corte=X): se esperaba el mensaje de valor invalido S/N: {mensajeC!r}"
+            )
+            assert campo_corte.input_value() == "", "El campo Corte deberia limpiarse tras el valor invalido"
+            capturar_paso(app, "casoC_mensaje_valor_invalido_campo_limpio", paso_excel=3)
+
+            frame.locator("button:has-text('Cancelar')").first.click()
+            app.wait_for_timeout(500)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

@@ -763,7 +763,42 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP057 (RF-7 - Eliminación de un rango de la lista): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf07(page, paso_excel=1)
+            app.wait_for_timeout(1500)
+            tabla = frame.locator("nz-table, table").first
+            filas_antes = filas_reales(tabla).count()
+
+            fila_objetivo = filas_reales(tabla).first
+            texto_fila = fila_objetivo.inner_text().replace("\n", " / ")
+            fila_objetivo.click()
+            app.wait_for_timeout(800)
+            capturar_paso(app, "rango_seleccionado_para_eliminar", paso_excel=1)
+
+            boton_eliminar = frame.locator("button:has-text('Eliminar')").first
+            assert boton_eliminar.is_enabled(timeout=5000), "Eliminar deberia estar habilitado con un rango seleccionado"
+            boton_eliminar.click()
+            app.wait_for_timeout(1200)
+            # HALLAZGO (22/10/2026): Eliminar pide confirmacion ("Confirmacion" /
+            # "Esta seguro de eliminar el corte?") antes de quitar la fila de la
+            # lista en memoria.
+            mensaje_eliminar = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=4000)
+            assert mensaje_eliminar is not None and "seguro" in mensaje_eliminar.lower(), (
+                f"Se esperaba el dialogo de confirmacion antes de eliminar: {mensaje_eliminar!r}"
+            )
+            app.wait_for_timeout(800)
+            capturar_paso(app, "rango_eliminado_de_la_lista_en_memoria", paso_excel=1)
+
+            filas_despues = filas_reales(tabla)
+            assert filas_despues.count() == filas_antes - 1, (
+                f"Se esperaba que la lista tenga una fila menos tras Eliminar: antes={filas_antes}, despues={filas_despues.count()}"
+            )
+
+            boton_actualizar_visible = frame.locator("button:has-text('Actualizar')").first
+            assert boton_actualizar_visible.count() > 0, "El cambio no deberia reflejarse en la configuracion guardada hasta Actualizar"
+            capturar_paso(app, "cambio_pendiente_de_actualizar", paso_excel=2)
+
+            frame.locator("button:has-text('Cancelar')").first.click()
+            app.wait_for_timeout(500)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

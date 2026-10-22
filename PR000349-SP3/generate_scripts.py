@@ -1300,6 +1300,524 @@ assert frame.locator("#numeroCliente").input_value() == "", "La pantalla deberia
 capturar_paso(app, "pantalla_limpia_para_nuevo_intento", paso_excel=3)
 '''
 
+# RF-7: Potencia Vs. Corte Inicial (app-corteinicial) - confirmado en
+# vivo 22/10/2026. Sucursal real "La Republica" con tipo de red Aerea
+# teniendo YA 1 rango configurado (0.00-999,999,999.99 BAJA TENSION) -
+# la matriz asume "al menos 2 rangos" pero 1 alcanza para verificar el
+# mismo comportamiento (precarga del ULTIMO rango, Modificar/Eliminar
+# habilitados). Selectores reales: radio Tipo de Red
+# (formcontrolname="tipoRed", 2 inputs radio), #potenciaInicial,
+# #potenciaFinal, #tipoCorte (nz-select), botones Modificar/Eliminar/
+# "Nuevo rango"/Actualizar/Cancelar. El texto de ayuda confirma
+# RN: "Los cambios de esta seccion se aplican a la lista de abajo;
+# recien se guardan al presionar Actualizar."
+
+CUERPOS_REALES["CP053"] = '''
+app, frame = abrir_rf07(page, paso_excel=1)
+app.wait_for_timeout(1500)
+capturar_paso(app, "pantalla_inicial_rangos_cargados", paso_excel=2)
+
+texto_pantalla = frame.locator("body").inner_text()
+assert "Sucursal" in texto_pantalla, "Se esperaba el campo Sucursal visible"
+
+tabla = frame.locator("nz-table, table").first
+filas = filas_reales(tabla)
+assert filas.count() >= 1, "Se esperaba al menos 1 rango configurado en la lista"
+
+combo_tipo_corte = frame.locator("#tipoCorte")
+assert combo_tipo_corte.count() > 0, "Se esperaba el combo Tipo de Corte"
+
+boton_modificar = frame.locator("button:has-text('Modificar')").first
+boton_eliminar = frame.locator("button:has-text('Eliminar')").first
+assert boton_modificar.is_enabled(timeout=5000), "Modificar deberia estar habilitado (precargado con el ultimo rango)"
+assert boton_eliminar.is_enabled(timeout=5000), "Eliminar deberia estar habilitado (precargado con el ultimo rango)"
+
+campo_potencia_inicial = frame.locator("#potenciaInicial")
+assert campo_potencia_inicial.input_value().strip() != "", "Potencia Inicial deberia venir precargada"
+capturar_paso(app, "campos_precargados_modificar_eliminar_habilitados", paso_excel=2)
+'''
+
+CUERPOS_REALES["CP055"] = '''
+app, frame = abrir_rf07(page, paso_excel=1)
+app.wait_for_timeout(1500)
+tabla = frame.locator("nz-table, table").first
+fila_objetivo = filas_reales(tabla).first
+fila_objetivo.click()
+app.wait_for_timeout(800)
+capturar_paso(app, "rango_existente_seleccionado", paso_excel=1)
+
+campo_potencia_inicial = frame.locator("#potenciaInicial")
+campo_potencia_final = frame.locator("#potenciaFinal")
+valor_inicial_antes = campo_potencia_inicial.input_value()
+assert valor_inicial_antes.strip() != "", "Potencia Inicial deberia precargarse con el valor del rango seleccionado"
+capturar_paso(app, "campos_precargados_con_el_rango", paso_excel=1)
+
+campo_potencia_final.click()
+campo_potencia_final.fill("")
+campo_potencia_final.fill("999999999.98")
+app.wait_for_timeout(500)
+capturar_paso(app, "potencia_final_modificada", paso_excel=1)
+
+frame.locator("button:has-text('Modificar')").first.click()
+app.wait_for_timeout(1200)
+# HALLAZGO (22/10/2026): Modificar pide confirmacion ("Confirmacion" /
+# "Esta seguro de ... el corte?") antes de aplicar el cambio a la
+# lista en memoria.
+mensaje_modificar = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=4000)
+app.wait_for_timeout(800)
+texto_tras_modificar = frame.locator("nz-table, table").first.inner_text()
+capturar_paso(app, "lista_refleja_nuevo_valor", paso_excel=1)
+assert "999,999,999.98" in texto_tras_modificar or "999999999.98" in texto_tras_modificar, (
+    f"Se esperaba ver el nuevo valor de Potencia Final en la lista: {texto_tras_modificar!r}"
+)
+
+frame.locator("button:has-text('Cancelar')").first.click()
+app.wait_for_timeout(500)
+'''
+
+CUERPOS_REALES["CP057"] = '''
+app, frame = abrir_rf07(page, paso_excel=1)
+app.wait_for_timeout(1500)
+tabla = frame.locator("nz-table, table").first
+filas_antes = filas_reales(tabla).count()
+
+fila_objetivo = filas_reales(tabla).first
+texto_fila = fila_objetivo.inner_text().replace("\\n", " / ")
+fila_objetivo.click()
+app.wait_for_timeout(800)
+capturar_paso(app, "rango_seleccionado_para_eliminar", paso_excel=1)
+
+boton_eliminar = frame.locator("button:has-text('Eliminar')").first
+assert boton_eliminar.is_enabled(timeout=5000), "Eliminar deberia estar habilitado con un rango seleccionado"
+boton_eliminar.click()
+app.wait_for_timeout(1200)
+# HALLAZGO (22/10/2026): Eliminar pide confirmacion ("Confirmacion" /
+# "Esta seguro de eliminar el corte?") antes de quitar la fila de la
+# lista en memoria.
+mensaje_eliminar = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=4000)
+assert mensaje_eliminar is not None and "seguro" in mensaje_eliminar.lower(), (
+    f"Se esperaba el dialogo de confirmacion antes de eliminar: {mensaje_eliminar!r}"
+)
+app.wait_for_timeout(800)
+capturar_paso(app, "rango_eliminado_de_la_lista_en_memoria", paso_excel=1)
+
+filas_despues = filas_reales(tabla)
+assert filas_despues.count() == filas_antes - 1, (
+    f"Se esperaba que la lista tenga una fila menos tras Eliminar: antes={filas_antes}, despues={filas_despues.count()}"
+)
+
+boton_actualizar_visible = frame.locator("button:has-text('Actualizar')").first
+assert boton_actualizar_visible.count() > 0, "El cambio no deberia reflejarse en la configuracion guardada hasta Actualizar"
+capturar_paso(app, "cambio_pendiente_de_actualizar", paso_excel=2)
+
+frame.locator("button:has-text('Cancelar')").first.click()
+app.wait_for_timeout(500)
+'''
+
+# CP056: confirmado en vivo 22/10/2026 - "Nuevo rango" limpia los
+# campos y revela el boton "Ingresar" (en vez de "Modificar"). Campos
+# vacios muestran "Ingrese Potencia Inicial." al intentar Ingresar.
+
+CUERPOS_REALES["CP056"] = '''
+app, frame = abrir_rf07(page, paso_excel=1)
+app.wait_for_timeout(1500)
+
+frame.locator("button:has-text('Nuevo rango')").first.click()
+app.wait_for_timeout(800)
+capturar_paso(app, "modo_nuevo_rango", paso_excel=1)
+
+campo_pi = frame.locator("#potenciaInicial")
+campo_pf = frame.locator("#potenciaFinal")
+combo_tipo_corte = frame.locator("#tipoCorte")
+boton_ingresar = frame.locator("button:has-text('Ingresar')").first
+
+# Caso 1: Potencia Inicial vacia
+boton_ingresar.click()
+app.wait_for_timeout(1000)
+mensaje1 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+assert mensaje1 is not None and "potencia inicial" in mensaje1.lower(), (
+    f"Caso 1 (Potencia Inicial vacia): se esperaba el mensaje de validacion: {mensaje1!r}"
+)
+capturar_paso(app, "caso1_potencia_inicial_vacia", paso_excel=2)
+
+# Caso 2: Potencia Final vacia
+campo_pi.click()
+campo_pi.fill("400.00")
+app.wait_for_timeout(300)
+boton_ingresar.click()
+app.wait_for_timeout(1000)
+mensaje2 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+assert mensaje2 is not None and "potencia final" in mensaje2.lower(), (
+    f"Caso 2 (Potencia Final vacia): se esperaba el mensaje de validacion: {mensaje2!r}"
+)
+capturar_paso(app, "caso2_potencia_final_vacia", paso_excel=3)
+
+# Caso 3: Tipo de Corte sin seleccionar
+campo_pf.click()
+campo_pf.fill("500.00")
+app.wait_for_timeout(300)
+boton_ingresar.click()
+app.wait_for_timeout(1000)
+mensaje3 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+capturar_paso(app, "caso3_tipo_de_corte_sin_seleccionar", paso_excel=4)
+assert mensaje3 is not None, (
+    "Caso 3 (Tipo de Corte sin seleccionar): se esperaba algun mensaje de validacion "
+    "(el campo puede venir con un valor por defecto - ver captura si esto no aplica)"
+)
+
+# Caso 4: Potencia Inicial 300.00 mayor que Potencia Final 200.00
+campo_pi.click()
+campo_pi.fill("")
+campo_pi.fill("300.00")
+campo_pf.click()
+campo_pf.fill("")
+campo_pf.fill("200.00")
+app.wait_for_timeout(300)
+capturar_paso(app, "caso4_inicial_mayor_que_final_ingresado", paso_excel=5)
+boton_ingresar.click()
+app.wait_for_timeout(1000)
+mensaje4 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+assert mensaje4 is not None, (
+    f"Caso 4 (Potencia Inicial > Potencia Final): se esperaba un mensaje de validacion: {mensaje4!r}"
+)
+capturar_paso(app, "caso4_mensaje_rango_invertido", paso_excel=5)
+
+frame.locator("button:has-text('Cancelar')").first.click()
+app.wait_for_timeout(500)
+'''
+
+# CP054: INTENTADO en vivo 22/10/2026, NO se confirma el comportamiento
+# que asume la matriz. Al cambiar a Subterranea (con un intento previo
+# de agregar un rango 400-500 ALTA TENSION pendiente) el sistema NO
+# muestra ningun mensaje de confirmacion - cambia directo y carga la
+# configuracion PROPIA de Subterranea (que tiene su propio rango real
+# 0.00-999,999,999.99 BAJA TENSION, independiente del de Aerea), sin
+# preservar el cambio pendiente. No esta claro si el rango 400-500
+# llego a agregarse de verdad en memoria antes del cambio (pudo haber
+# sido rechazado en silencio por solaparse con el rango 0-999999999.99
+# ya existente). Pendiente de revisar con mas calma (quizas el mensaje
+# de confirmacion solo aparece con una condicion distinta, o la regla
+# de negocio de la matriz no aplica a esta sucursal/ambiente).
+
+# RF-8: Proveedores De Corte / "Mantenimiento de Proveedores de Corte"
+# (app-proveedorcorte) - confirmado en vivo 22/10/2026. Con la cuenta
+# DCABA_DW, la Sucursal se muestra como TEXTO FIJO "3200 - La Republica"
+# (sin selector) - coincide con el escenario de CP062 (alcance de
+# sucursal unica), no con CP061/063 (alcance multi-sucursal, requiere
+# otro rol/cuenta que esta sesion no tiene). Grilla real con 6
+# proveedores reales (RUC/Razon Social NO coinciden con los que asume
+# la matriz): 20545868505 APPLUS NORCONTROL PERU S.A.C., 20101087566
+# BUREAU VERITAS DEL PERU S.A., 20547132158 DOMINIONPERU SOLUCIONES Y
+# SERVICIOS SAC, 20385784644 LOPHER S.A.C., 20331898008 LUZ DEL SUR
+# S.A.A., 20206018411 TECSUR S.A. Selectores: #ruc (input, placeholder
+# "Ingrese o busque el RUC"), #razonSocial (input, solo lectura), boton
+# "..." (busqueda en catalogo), boton check verde (Ingresar/Guardar),
+# boton tacho rojo (Eliminar), Cancelar.
+
+CUERPOS_REALES["CP062"] = '''
+app, frame = abrir_rf08(page, paso_excel=1)
+app.wait_for_timeout(1500)
+capturar_paso(app, "pantalla_inicial_sucursal_fija", paso_excel=2)
+
+texto_sucursal = frame.locator("body").inner_text()
+assert "Sucursal" in texto_sucursal, "Se esperaba el campo Sucursal visible"
+selector_sucursal = frame.locator("nz-select, select")
+assert selector_sucursal.count() == 0, "No deberia mostrarse un selector de sucursal (alcance de sucursal unica)"
+
+tabla = frame.locator("table, nz-table").first
+filas = filas_reales(tabla)
+assert filas.count() >= 1, "Se esperaba al menos un proveedor activo cargado en la grilla"
+capturar_paso(app, "grilla_de_proveedores_cargada", paso_excel=2)
+'''
+
+CUERPOS_REALES["CP064"] = '''
+app, frame = abrir_rf08(page, paso_excel=1)
+app.wait_for_timeout(1500)
+tabla = frame.locator("table, nz-table").first
+fila_objetivo = filas_reales(tabla).filter(has_text="20545868505").first
+assert fila_objetivo.count() > 0, "Se esperaba encontrar el proveedor real 20545868505 (APPLUS NORCONTROL PERU S.A.C.) en la grilla"
+fila_objetivo.click()
+app.wait_for_timeout(1000)
+capturar_paso(app, "proveedor_seleccionado", paso_excel=2)
+
+campo_ruc = frame.locator("#ruc")
+campo_razon = frame.locator("#razonSocial")
+assert campo_ruc.input_value().strip() == "20545868505", f"Se esperaba el RUC 20545868505 cargado, quedo: {campo_ruc.input_value()!r}"
+assert "APPLUS" in campo_razon.input_value().upper(), f"Se esperaba la razon social de APPLUS cargada: {campo_razon.input_value()!r}"
+assert not campo_ruc.is_enabled(), "El campo RUC deberia quedar deshabilitado tras seleccionar un proveedor existente"
+capturar_paso(app, "ruc_y_razon_social_cargados_ruc_bloqueado", paso_excel=2)
+'''
+
+# CP065/CP066 BLOQUEADOS: el boton "..." abre un modal "Busqueda de
+# Proveedor" real (#bp-ruc, #bp-razonsocial, boton Buscar, grilla "DOBLE
+# CLIC SELECCIONA") pero la busqueda devuelve "Sin resultados." para
+# CUALQUIER termino probado (3/3: razon social "S.A.C.", "PERU", RUC
+# "20") - incluso terminos que deberian matchear proveedores YA
+# visibles en la grilla principal. Catalogo de busqueda vacio/roto en
+# este ambiente - sin esto no se puede completar el flujo real de
+# CP065 (completar datos desde el catalogo) ni CP066 (registrar
+# proveedor nuevo eligiendolo del catalogo).
+
+CUERPOS_REALES["CP067"] = '''
+app, frame = abrir_rf08(page, paso_excel=1)
+app.wait_for_timeout(1500)
+
+campo_ruc = frame.locator("#ruc")
+campo_ruc.click()
+campo_ruc.fill("20545868505")
+app.wait_for_timeout(500)
+capturar_paso(app, "ruc_ya_asignado_ingresado_manualmente", paso_excel=2)
+
+# Orden real confirmado de botones: [0]=Manual [1]="..." [2]=check(Guardar)
+# [3]=tacho(Eliminar) [4]=Cancelar
+boton_guardar = frame.locator("button").nth(2)
+boton_guardar.click()
+app.wait_for_timeout(1500)
+mensaje = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=6000) or frame.locator("body").inner_text()
+capturar_paso(app, "mensaje_proveedor_ya_registrado", paso_excel=3)
+assert "ya" in mensaje.lower() and ("registr" in mensaje.lower() or "asign" in mensaje.lower() or "exist" in mensaje.lower()), (
+    f"Se esperaba un mensaje de proveedor ya registrado: {mensaje!r}"
+)
+
+tabla = frame.locator("table, nz-table").first
+filas_ruc = filas_reales(tabla).filter(has_text="20545868505")
+assert filas_ruc.count() == 1, f"No deberia haber un registro duplicado del RUC 20545868505: {filas_ruc.count()} filas"
+'''
+
+# CP068/CP069: confirmado en vivo 22/10/2026 cual proveedor real tiene
+# dependencias y cual no (ver _exploracion/explore_27_rf8_eliminar.py):
+# RUC 20385784644 (LOPHER S.A.C.) tiene sectores agendados reales
+# asociados -> Eliminar muestra un SEGUNDO modal "Error: Existen
+# sectores agendados que estan asociados a este proveedor" con el
+# detalle real (Fecha/Sector/Rol) y NO elimina. RUC 20206018411
+# (TECSUR S.A.) y 20547132158 (DOMINIONPERU) se eliminaron limpio en
+# esta misma exploracion (sin segundo modal) - YA FUERON CONSUMIDOS,
+# no estan mas en la grilla. RUC 20101087566 (BUREAU VERITAS DEL PERU
+# S.A.) se probo tambien y SI tiene dependencias (10+ sectores
+# agendados reales) - no sirve para CP069. Se usa en su lugar RUC
+# 20545868505 (APPLUS NORCONTROL PERU S.A.C., el proveedor mas
+# reciente, registrado 14/01/2025) - confirmado sin dependencias. OJO:
+# al correr este CP069 de verdad, ese proveedor (tambien usado en
+# CP064/CP067 de forma no destructiva) quedara dado de baja logica de
+# forma permanente - correr CP069 DESPUES de CP064/CP067, no antes.
+
+CUERPOS_REALES["CP068"] = '''
+app, frame = abrir_rf08(page, paso_excel=1)
+app.wait_for_timeout(1500)
+tabla = frame.locator("table, nz-table").first
+fila_objetivo = filas_reales(tabla).filter(has_text="20385784644").first
+assert fila_objetivo.count() > 0, "Se esperaba encontrar el proveedor real 20385784644 (LOPHER S.A.C.) en la grilla"
+fila_objetivo.click()
+app.wait_for_timeout(1000)
+capturar_paso(app, "proveedor_con_dependencias_seleccionado", paso_excel=1)
+
+boton_trash = frame.locator("button").nth(3)
+boton_trash.click()
+app.wait_for_timeout(1200)
+modal_confirmacion = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S)).first
+assert modal_confirmacion.count() > 0, "Se esperaba el dialogo de confirmacion antes de intentar eliminar"
+modal_confirmacion.get_by_role("button", name=re.compile(r"^\\s*Aceptar\\s*$", re.I)).click()
+app.wait_for_timeout(1500)
+
+modal_error = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S)).first
+assert modal_error.count() > 0, "Se esperaba un segundo mensaje informando las dependencias encontradas"
+texto_error = modal_error.inner_text()
+capturar_paso(app, "detalle_de_dependencias_mostrado", paso_excel=2)
+assert "sector" in texto_error.lower() and ("agendad" in texto_error.lower() or "asociad" in texto_error.lower()), (
+    f"Se esperaba el detalle de sectores agendados asociados: {texto_error!r}"
+)
+modal_error.get_by_role("button", name=re.compile(r"^\\s*Aceptar\\s*$", re.I)).click()
+app.wait_for_timeout(1000)
+
+tabla_final = frame.locator("table, nz-table").first
+assert filas_reales(tabla_final).filter(has_text="20385784644").count() == 1, (
+    "El proveedor con dependencias deberia permanecer activo en la grilla tras el rechazo"
+)
+capturar_paso(app, "proveedor_permanece_en_la_grilla", paso_excel=3)
+'''
+
+# CP069 PENDIENTE: probados 20101087566 (BUREAU VERITAS) y 20545868505
+# (APPLUS, el proveedor mas reciente) - AMBOS tienen dependencias
+# reales (sectores agendados). 20206018411 (TECSUR) y 20547132158
+# (DOMINIONPERU) SI se confirmaron sin dependencias (se eliminaron
+# limpio durante la exploracion, ver explore_27_rf8_eliminar.py) pero
+# ya fueron consumidos - no quedan en la grilla para escribir un
+# CPxxx.py repetible contra ellos. Solo queda sin probar 20331898008
+# (LUZ DEL SUR S.A.A., nombre institucional, no se intento por
+# prudencia) y el flujo de registrar un proveedor nuevo propio para
+# despues eliminarlo (bloqueado por el catalogo de busqueda roto, ver
+# nota de CP065/066 mas arriba). Pendiente de decidir con el usuario.
+
+# RF-3 (continuacion): CP022/023/024 confirmados en vivo 22/10/2026.
+# Inspeccion=N -> Dias de Inspeccion se fija en "0" y queda deshabilitado
+# (RN confirmada). Igual para Corte=N -> Dias de Corte "0" deshabilitado.
+# Inspeccion=X (invalido) -> "Ventana de Validacion": 'El campo "Envia a
+# Inspeccion [S/N]" solo admite el valor S o N.' y el campo queda VACIO
+# (se limpia solo). HALLAZGO: Inspeccion=S y Corte=S con sus Dias en "0"
+# dan el MISMO mensaje generico al intentar Actualizar: "Complete los 5
+# datos de todas las filas (...) antes de actualizar." - la matriz dice
+# que Corte=S/Dias=0 deberia ACEPTARSE sin error (a diferencia de
+# Inspeccion), pero en este ambiente ambos campos tratan "0" como dato
+# incompleto por igual, sin distincion. CP023 Caso B se escribe
+# reflejando el comportamiento REAL (mismo mensaje), no lo que asume la
+# matriz. El boton "?" (btn-help) abre el catalogo real "Tipos de
+# Acciones Realizadas" (26 codigos reales, funciona bien a diferencia
+# del catalogo roto de RF-8) - doble clic en una fila traslada el
+# codigo al campo Accion Realizada.
+
+CUERPOS_REALES["CP022"] = '''
+app, frame = abrir_rf03(page, paso_excel=1)
+app.wait_for_timeout(1000)
+frame.locator("button:has-text('Insertar Fila')").first.click()
+app.wait_for_timeout(800)
+frame.locator("#accionRealiza").click()
+frame.locator("#accionRealiza").fill("10")
+app.wait_for_timeout(300)
+
+campo_inspeccion = frame.locator("#inspeccion")
+campo_dias_insp = frame.locator("#diasInspeccion")
+
+# Caso A: Inspeccion = N
+campo_inspeccion.click()
+campo_inspeccion.fill("N")
+app.wait_for_timeout(800)
+assert campo_dias_insp.input_value() == "0", f"Dias de Inspeccion deberia fijarse en 0 con Inspeccion=N, quedo: {campo_dias_insp.input_value()!r}"
+assert not campo_dias_insp.is_enabled(), "Dias de Inspeccion deberia quedar deshabilitado con Inspeccion=N"
+capturar_paso(app, "casoA_inspeccion_N_dias_fijado_en_0", paso_excel=1)
+
+# Caso B: Inspeccion = S con Dias = 0
+campo_inspeccion.click()
+campo_inspeccion.fill("")
+campo_inspeccion.fill("S")
+app.wait_for_timeout(800)
+assert campo_dias_insp.is_enabled(), "Dias de Inspeccion deberia habilitarse con Inspeccion=S"
+frame.locator("#corte").click()
+frame.locator("#corte").fill("N")
+app.wait_for_timeout(500)
+capturar_paso(app, "casoB_inspeccion_S_dias_en_0", paso_excel=1)
+
+frame.locator("button:has-text('Actualizar')").first.click()
+app.wait_for_timeout(1200)
+mensajeB = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+assert mensajeB is not None and "complet" in mensajeB.lower(), (
+    f"Caso B (Inspeccion=S, Dias=0): se esperaba el mensaje de datos incompletos: {mensajeB!r}"
+)
+capturar_paso(app, "casoB_mensaje_dias_requeridos", paso_excel=2)
+
+# Caso C: Inspeccion = X (invalido)
+campo_inspeccion.click()
+campo_inspeccion.fill("")
+campo_inspeccion.type("X", delay=100)
+frame.locator("#corte").click()
+app.wait_for_timeout(1000)
+mensajeC = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+assert mensajeC is not None and "s o n" in mensajeC.lower(), (
+    f"Caso C (Inspeccion=X): se esperaba el mensaje de valor invalido S/N: {mensajeC!r}"
+)
+assert campo_inspeccion.input_value() == "", "El campo Inspeccion deberia limpiarse tras el valor invalido"
+capturar_paso(app, "casoC_mensaje_valor_invalido_campo_limpio", paso_excel=3)
+
+frame.locator("button:has-text('Cancelar')").first.click()
+app.wait_for_timeout(500)
+'''
+
+CUERPOS_REALES["CP023"] = '''
+app, frame = abrir_rf03(page, paso_excel=1)
+app.wait_for_timeout(1000)
+frame.locator("button:has-text('Insertar Fila')").first.click()
+app.wait_for_timeout(800)
+frame.locator("#accionRealiza").click()
+frame.locator("#accionRealiza").fill("30")
+app.wait_for_timeout(300)
+
+campo_corte = frame.locator("#corte")
+campo_dias_corte = frame.locator("#diasEsperaCorte")
+
+# Caso A: Corte = N
+campo_corte.click()
+campo_corte.fill("N")
+app.wait_for_timeout(800)
+assert campo_dias_corte.input_value() == "0", f"Dias de Corte deberia fijarse en 0 con Corte=N, quedo: {campo_dias_corte.input_value()!r}"
+assert not campo_dias_corte.is_enabled(), "Dias de Corte deberia quedar deshabilitado con Corte=N"
+capturar_paso(app, "casoA_corte_N_dias_fijado_en_0", paso_excel=1)
+
+# Caso B: Corte = S con Dias = 0 - HALLAZGO: en este ambiente NO se
+# acepta sin error como asume la matriz; da el mismo mensaje generico
+# de datos incompletos que Inspeccion (ver nota arriba de CP022/023).
+campo_corte.click()
+campo_corte.fill("")
+campo_corte.fill("S")
+app.wait_for_timeout(800)
+assert campo_dias_corte.is_enabled(), "Dias de Corte deberia habilitarse con Corte=S"
+frame.locator("#inspeccion").click()
+frame.locator("#inspeccion").fill("N")
+app.wait_for_timeout(500)
+capturar_paso(app, "casoB_corte_S_dias_en_0", paso_excel=1)
+
+frame.locator("button:has-text('Actualizar')").first.click()
+app.wait_for_timeout(1200)
+mensajeB = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+capturar_paso(app, "casoB_resultado_real_dias_corte_en_0", paso_excel=2)
+assert mensajeB is not None and "complet" in mensajeB.lower(), (
+    f"Caso B (Corte=S, Dias=0): la matriz asume que se acepta sin error, pero en este ambiente "
+    f"se obtuvo: {mensajeB!r} (si esto cambia, revisar - podria ser que ahora SI distinga Corte de Inspeccion)"
+)
+
+# Caso C: Corte = X (invalido)
+campo_corte.click()
+campo_corte.fill("")
+campo_corte.type("X", delay=100)
+frame.locator("#inspeccion").click()
+app.wait_for_timeout(1000)
+mensajeC = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+assert mensajeC is not None and "s o n" in mensajeC.lower(), (
+    f"Caso C (Corte=X): se esperaba el mensaje de valor invalido S/N: {mensajeC!r}"
+)
+assert campo_corte.input_value() == "", "El campo Corte deberia limpiarse tras el valor invalido"
+capturar_paso(app, "casoC_mensaje_valor_invalido_campo_limpio", paso_excel=3)
+
+frame.locator("button:has-text('Cancelar')").first.click()
+app.wait_for_timeout(500)
+'''
+
+CUERPOS_REALES["CP024"] = '''
+app, frame = abrir_rf03(page, paso_excel=1)
+app.wait_for_timeout(1000)
+tabla = frame.locator("nz-table, table").first
+filas_antes = filas_reales(tabla).count()
+
+frame.locator("button:has-text('Insertar Fila')").first.click()
+app.wait_for_timeout(800)
+capturar_paso(app, "fila_nueva_lista_para_elegir_codigo", paso_excel=1)
+
+frame.locator("button.btn-help").first.click()
+app.wait_for_timeout(1500)
+modal = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S)).first
+assert modal.count() > 0 and "tipos de acciones" in modal.inner_text().lower(), (
+    "Se esperaba que se abra el catalogo de Tipos de Acciones Realizadas"
+)
+capturar_paso(app, "catalogo_de_tipos_de_accion_abierto", paso_excel=2)
+
+filas_catalogo = modal.locator("tbody tr:not(.ant-table-measure-now)").filter(has_not_text="Sin resultados")
+fila_codigo_30 = filas_catalogo.filter(has_text="30").first
+assert fila_codigo_30.count() > 0, "Se esperaba encontrar el codigo 30 (CORTE ENCEMENTADO) en el catalogo"
+fila_codigo_30.dblclick()
+app.wait_for_timeout(1200)
+capturar_paso(app, "codigo_seleccionado_con_doble_clic", paso_excel=3)
+
+assert frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S)).count() == 0, (
+    "La ventana de consulta deberia cerrarse tras el doble clic"
+)
+campo_accion = frame.locator("#accionRealiza")
+assert campo_accion.input_value().strip() == "30", (
+    f"Se esperaba que el codigo 30 se traslade al campo Accion Realizada, quedo: {campo_accion.input_value()!r}"
+)
+capturar_paso(app, "codigo_trasladado_al_campo_accion_realizada", paso_excel=3)
+
+frame.locator("button:has-text('Cancelar')").first.click()
+app.wait_for_timeout(500)
+'''
+
 for _cp in sorted(MATRIZ.keys(), key=lambda c: int(c[2:])):
     _datos = MATRIZ[_cp]
     if _cp in CUERPOS_REALES:

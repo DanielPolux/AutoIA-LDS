@@ -763,7 +763,38 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP068 (RF-8 - Eliminación rechazada por dependencias asociadas): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf08(page, paso_excel=1)
+            app.wait_for_timeout(1500)
+            tabla = frame.locator("table, nz-table").first
+            fila_objetivo = filas_reales(tabla).filter(has_text="20385784644").first
+            assert fila_objetivo.count() > 0, "Se esperaba encontrar el proveedor real 20385784644 (LOPHER S.A.C.) en la grilla"
+            fila_objetivo.click()
+            app.wait_for_timeout(1000)
+            capturar_paso(app, "proveedor_con_dependencias_seleccionado", paso_excel=1)
+
+            boton_trash = frame.locator("button").nth(3)
+            boton_trash.click()
+            app.wait_for_timeout(1200)
+            modal_confirmacion = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S)).first
+            assert modal_confirmacion.count() > 0, "Se esperaba el dialogo de confirmacion antes de intentar eliminar"
+            modal_confirmacion.get_by_role("button", name=re.compile(r"^\s*Aceptar\s*$", re.I)).click()
+            app.wait_for_timeout(1500)
+
+            modal_error = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S)).first
+            assert modal_error.count() > 0, "Se esperaba un segundo mensaje informando las dependencias encontradas"
+            texto_error = modal_error.inner_text()
+            capturar_paso(app, "detalle_de_dependencias_mostrado", paso_excel=2)
+            assert "sector" in texto_error.lower() and ("agendad" in texto_error.lower() or "asociad" in texto_error.lower()), (
+                f"Se esperaba el detalle de sectores agendados asociados: {texto_error!r}"
+            )
+            modal_error.get_by_role("button", name=re.compile(r"^\s*Aceptar\s*$", re.I)).click()
+            app.wait_for_timeout(1000)
+
+            tabla_final = frame.locator("table, nz-table").first
+            assert filas_reales(tabla_final).filter(has_text="20385784644").count() == 1, (
+                "El proveedor con dependencias deberia permanecer activo en la grilla tras el rechazo"
+            )
+            capturar_paso(app, "proveedor_permanece_en_la_grilla", paso_excel=3)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

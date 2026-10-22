@@ -763,7 +763,41 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP024 (RF-3 - Selección de código desde el catálogo de Tipos de Acción): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf03(page, paso_excel=1)
+            app.wait_for_timeout(1000)
+            tabla = frame.locator("nz-table, table").first
+            filas_antes = filas_reales(tabla).count()
+
+            frame.locator("button:has-text('Insertar Fila')").first.click()
+            app.wait_for_timeout(800)
+            capturar_paso(app, "fila_nueva_lista_para_elegir_codigo", paso_excel=1)
+
+            frame.locator("button.btn-help").first.click()
+            app.wait_for_timeout(1500)
+            modal = frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S)).first
+            assert modal.count() > 0 and "tipos de acciones" in modal.inner_text().lower(), (
+                "Se esperaba que se abra el catalogo de Tipos de Acciones Realizadas"
+            )
+            capturar_paso(app, "catalogo_de_tipos_de_accion_abierto", paso_excel=2)
+
+            filas_catalogo = modal.locator("tbody tr:not(.ant-table-measure-now)").filter(has_not_text="Sin resultados")
+            fila_codigo_30 = filas_catalogo.filter(has_text="30").first
+            assert fila_codigo_30.count() > 0, "Se esperaba encontrar el codigo 30 (CORTE ENCEMENTADO) en el catalogo"
+            fila_codigo_30.dblclick()
+            app.wait_for_timeout(1200)
+            capturar_paso(app, "codigo_seleccionado_con_doble_clic", paso_excel=3)
+
+            assert frame.locator(".ant-modal, nz-modal-container").filter(has_text=re.compile(".", re.S)).count() == 0, (
+                "La ventana de consulta deberia cerrarse tras el doble clic"
+            )
+            campo_accion = frame.locator("#accionRealiza")
+            assert campo_accion.input_value().strip() == "30", (
+                f"Se esperaba que el codigo 30 se traslade al campo Accion Realizada, quedo: {campo_accion.input_value()!r}"
+            )
+            capturar_paso(app, "codigo_trasladado_al_campo_accion_realizada", paso_excel=3)
+
+            frame.locator("button:has-text('Cancelar')").first.click()
+            app.wait_for_timeout(500)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

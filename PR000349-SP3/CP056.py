@@ -763,7 +763,71 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP056 (RF-7 - Validaciones de campos al agregar un rango de potencia): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf07(page, paso_excel=1)
+            app.wait_for_timeout(1500)
+
+            frame.locator("button:has-text('Nuevo rango')").first.click()
+            app.wait_for_timeout(800)
+            capturar_paso(app, "modo_nuevo_rango", paso_excel=1)
+
+            campo_pi = frame.locator("#potenciaInicial")
+            campo_pf = frame.locator("#potenciaFinal")
+            combo_tipo_corte = frame.locator("#tipoCorte")
+            boton_ingresar = frame.locator("button:has-text('Ingresar')").first
+
+            # Caso 1: Potencia Inicial vacia
+            boton_ingresar.click()
+            app.wait_for_timeout(1000)
+            mensaje1 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+            assert mensaje1 is not None and "potencia inicial" in mensaje1.lower(), (
+                f"Caso 1 (Potencia Inicial vacia): se esperaba el mensaje de validacion: {mensaje1!r}"
+            )
+            capturar_paso(app, "caso1_potencia_inicial_vacia", paso_excel=2)
+
+            # Caso 2: Potencia Final vacia
+            campo_pi.click()
+            campo_pi.fill("400.00")
+            app.wait_for_timeout(300)
+            boton_ingresar.click()
+            app.wait_for_timeout(1000)
+            mensaje2 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+            assert mensaje2 is not None and "potencia final" in mensaje2.lower(), (
+                f"Caso 2 (Potencia Final vacia): se esperaba el mensaje de validacion: {mensaje2!r}"
+            )
+            capturar_paso(app, "caso2_potencia_final_vacia", paso_excel=3)
+
+            # Caso 3: Tipo de Corte sin seleccionar
+            campo_pf.click()
+            campo_pf.fill("500.00")
+            app.wait_for_timeout(300)
+            boton_ingresar.click()
+            app.wait_for_timeout(1000)
+            mensaje3 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+            capturar_paso(app, "caso3_tipo_de_corte_sin_seleccionar", paso_excel=4)
+            assert mensaje3 is not None, (
+                "Caso 3 (Tipo de Corte sin seleccionar): se esperaba algun mensaje de validacion "
+                "(el campo puede venir con un valor por defecto - ver captura si esto no aplica)"
+            )
+
+            # Caso 4: Potencia Inicial 300.00 mayor que Potencia Final 200.00
+            campo_pi.click()
+            campo_pi.fill("")
+            campo_pi.fill("300.00")
+            campo_pf.click()
+            campo_pf.fill("")
+            campo_pf.fill("200.00")
+            app.wait_for_timeout(300)
+            capturar_paso(app, "caso4_inicial_mayor_que_final_ingresado", paso_excel=5)
+            boton_ingresar.click()
+            app.wait_for_timeout(1000)
+            mensaje4 = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+            assert mensaje4 is not None, (
+                f"Caso 4 (Potencia Inicial > Potencia Final): se esperaba un mensaje de validacion: {mensaje4!r}"
+            )
+            capturar_paso(app, "caso4_mensaje_rango_invertido", paso_excel=5)
+
+            frame.locator("button:has-text('Cancelar')").first.click()
+            app.wait_for_timeout(500)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

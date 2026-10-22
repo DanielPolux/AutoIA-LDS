@@ -763,7 +763,41 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP055 (RF-7 - Selección de un rango existente y edición de sus valores): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf07(page, paso_excel=1)
+            app.wait_for_timeout(1500)
+            tabla = frame.locator("nz-table, table").first
+            fila_objetivo = filas_reales(tabla).first
+            fila_objetivo.click()
+            app.wait_for_timeout(800)
+            capturar_paso(app, "rango_existente_seleccionado", paso_excel=1)
+
+            campo_potencia_inicial = frame.locator("#potenciaInicial")
+            campo_potencia_final = frame.locator("#potenciaFinal")
+            valor_inicial_antes = campo_potencia_inicial.input_value()
+            assert valor_inicial_antes.strip() != "", "Potencia Inicial deberia precargarse con el valor del rango seleccionado"
+            capturar_paso(app, "campos_precargados_con_el_rango", paso_excel=1)
+
+            campo_potencia_final.click()
+            campo_potencia_final.fill("")
+            campo_potencia_final.fill("999999999.98")
+            app.wait_for_timeout(500)
+            capturar_paso(app, "potencia_final_modificada", paso_excel=1)
+
+            frame.locator("button:has-text('Modificar')").first.click()
+            app.wait_for_timeout(1200)
+            # HALLAZGO (22/10/2026): Modificar pide confirmacion ("Confirmacion" /
+            # "Esta seguro de ... el corte?") antes de aplicar el cambio a la
+            # lista en memoria.
+            mensaje_modificar = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=4000)
+            app.wait_for_timeout(800)
+            texto_tras_modificar = frame.locator("nz-table, table").first.inner_text()
+            capturar_paso(app, "lista_refleja_nuevo_valor", paso_excel=1)
+            assert "999,999,999.98" in texto_tras_modificar or "999999999.98" in texto_tras_modificar, (
+                f"Se esperaba ver el nuevo valor de Potencia Final en la lista: {texto_tras_modificar!r}"
+            )
+
+            frame.locator("button:has-text('Cancelar')").first.click()
+            app.wait_for_timeout(500)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

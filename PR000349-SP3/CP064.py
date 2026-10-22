@@ -763,7 +763,21 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP064 (RF-8 - Selección de proveedor existente bloquea el R.U.C.): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf08(page, paso_excel=1)
+            app.wait_for_timeout(1500)
+            tabla = frame.locator("table, nz-table").first
+            fila_objetivo = filas_reales(tabla).filter(has_text="20545868505").first
+            assert fila_objetivo.count() > 0, "Se esperaba encontrar el proveedor real 20545868505 (APPLUS NORCONTROL PERU S.A.C.) en la grilla"
+            fila_objetivo.click()
+            app.wait_for_timeout(1000)
+            capturar_paso(app, "proveedor_seleccionado", paso_excel=2)
+
+            campo_ruc = frame.locator("#ruc")
+            campo_razon = frame.locator("#razonSocial")
+            assert campo_ruc.input_value().strip() == "20545868505", f"Se esperaba el RUC 20545868505 cargado, quedo: {campo_ruc.input_value()!r}"
+            assert "APPLUS" in campo_razon.input_value().upper(), f"Se esperaba la razon social de APPLUS cargada: {campo_razon.input_value()!r}"
+            assert not campo_ruc.is_enabled(), "El campo RUC deberia quedar deshabilitado tras seleccionar un proveedor existente"
+            capturar_paso(app, "ruc_y_razon_social_cargados_ruc_bloqueado", paso_excel=2)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

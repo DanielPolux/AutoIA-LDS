@@ -763,7 +763,29 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP067 (RF-8 - Registro rechazado por proveedor ya asignado): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf08(page, paso_excel=1)
+            app.wait_for_timeout(1500)
+
+            campo_ruc = frame.locator("#ruc")
+            campo_ruc.click()
+            campo_ruc.fill("20545868505")
+            app.wait_for_timeout(500)
+            capturar_paso(app, "ruc_ya_asignado_ingresado_manualmente", paso_excel=2)
+
+            # Orden real confirmado de botones: [0]=Manual [1]="..." [2]=check(Guardar)
+            # [3]=tacho(Eliminar) [4]=Cancelar
+            boton_guardar = frame.locator("button").nth(2)
+            boton_guardar.click()
+            app.wait_for_timeout(1500)
+            mensaje = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=6000) or frame.locator("body").inner_text()
+            capturar_paso(app, "mensaje_proveedor_ya_registrado", paso_excel=3)
+            assert "ya" in mensaje.lower() and ("registr" in mensaje.lower() or "asign" in mensaje.lower() or "exist" in mensaje.lower()), (
+                f"Se esperaba un mensaje de proveedor ya registrado: {mensaje!r}"
+            )
+
+            tabla = frame.locator("table, nz-table").first
+            filas_ruc = filas_reales(tabla).filter(has_text="20545868505")
+            assert filas_ruc.count() == 1, f"No deberia haber un registro duplicado del RUC 20545868505: {filas_ruc.count()} filas"
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

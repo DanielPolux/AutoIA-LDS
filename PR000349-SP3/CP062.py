@@ -763,7 +763,19 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP062 (RF-8 - Carga inicial con alcance de sucursal única): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf08(page, paso_excel=1)
+            app.wait_for_timeout(1500)
+            capturar_paso(app, "pantalla_inicial_sucursal_fija", paso_excel=2)
+
+            texto_sucursal = frame.locator("body").inner_text()
+            assert "Sucursal" in texto_sucursal, "Se esperaba el campo Sucursal visible"
+            selector_sucursal = frame.locator("nz-select, select")
+            assert selector_sucursal.count() == 0, "No deberia mostrarse un selector de sucursal (alcance de sucursal unica)"
+
+            tabla = frame.locator("table, nz-table").first
+            filas = filas_reales(tabla)
+            assert filas.count() >= 1, "Se esperaba al menos un proveedor activo cargado en la grilla"
+            capturar_paso(app, "grilla_de_proveedores_cargada", paso_excel=2)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

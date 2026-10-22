@@ -763,7 +763,28 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP053 (RF-7 - Carga inicial de rangos configurados al abrir la pantalla): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf07(page, paso_excel=1)
+            app.wait_for_timeout(1500)
+            capturar_paso(app, "pantalla_inicial_rangos_cargados", paso_excel=2)
+
+            texto_pantalla = frame.locator("body").inner_text()
+            assert "Sucursal" in texto_pantalla, "Se esperaba el campo Sucursal visible"
+
+            tabla = frame.locator("nz-table, table").first
+            filas = filas_reales(tabla)
+            assert filas.count() >= 1, "Se esperaba al menos 1 rango configurado en la lista"
+
+            combo_tipo_corte = frame.locator("#tipoCorte")
+            assert combo_tipo_corte.count() > 0, "Se esperaba el combo Tipo de Corte"
+
+            boton_modificar = frame.locator("button:has-text('Modificar')").first
+            boton_eliminar = frame.locator("button:has-text('Eliminar')").first
+            assert boton_modificar.is_enabled(timeout=5000), "Modificar deberia estar habilitado (precargado con el ultimo rango)"
+            assert boton_eliminar.is_enabled(timeout=5000), "Eliminar deberia estar habilitado (precargado con el ultimo rango)"
+
+            campo_potencia_inicial = frame.locator("#potenciaInicial")
+            assert campo_potencia_inicial.input_value().strip() != "", "Potencia Inicial deberia venir precargada"
+            capturar_paso(app, "campos_precargados_modificar_eliminar_habilitados", paso_excel=2)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True

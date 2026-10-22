@@ -1,0 +1,7 @@
+{
+  "CP032": {
+    "motivo": "DEFECTO REAL: al registrar una Accion Realizada de Corte NUEVA (pantalla 'Mantenedor de Accion Realizada de Corte', RF-4) con el indicador 'Corta' marcado (que por la regla RN confirmada en CP031 marca tambien 'Ubicado' automaticamente), el sistema muestra 'Error de Servicio: Error al registrar la accion de corte.' y el codigo nunca queda creado. Reproducido 3/4 veces en intentos separados en el tiempo dentro de la misma sesion (22/10/2026), con el modal de error real capturado explicitamente las 3 primeras veces; un 4to intento diagnostico no logro capturar el modal pero se confirmo por separado que el codigo '25' sigue sin existir tras ese intento tambien (4/4 fallos reales de creacion). Modificar y Eliminar sobre codigos EXISTENTES (CP033/CP034) funcionan correctamente - el defecto parece acotado especificamente al flujo de CREAR un codigo nuevo con Corta=Si.",
+    "fecha_verificacion": "2026-10-22",
+    "evidencia": "run_all.py --solo CP032 corrido 3 veces en momentos separados de la sesion, las 3 con 'Error de Servicio: Error al registrar la accion de corte.' capturado en CP032_error.png. Verificado por separado (_exploracion/explore_32_rf4_verificar_25.py) que el codigo 25 nunca llego a existir en el catalogo tras ningun intento (Leer 25 -> Descripcion vacia, boton sigue siendo 'Ingresar' no 'Modificar')."
+  }
+}

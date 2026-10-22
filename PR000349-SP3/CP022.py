@@ -763,7 +763,59 @@ def main():
         _CASO_OK = False
         try:
             login(page, paso_excel=1)
-            raise NotImplementedError('CP022 (RF-3 - Validación de Inspección [S/N] y sus Días de espera): falta escribir el body real - falta exploracion en vivo.')
+            app, frame = abrir_rf03(page, paso_excel=1)
+            app.wait_for_timeout(1000)
+            frame.locator("button:has-text('Insertar Fila')").first.click()
+            app.wait_for_timeout(800)
+            frame.locator("#accionRealiza").click()
+            frame.locator("#accionRealiza").fill("10")
+            app.wait_for_timeout(300)
+
+            campo_inspeccion = frame.locator("#inspeccion")
+            campo_dias_insp = frame.locator("#diasInspeccion")
+
+            # Caso A: Inspeccion = N
+            campo_inspeccion.click()
+            campo_inspeccion.fill("N")
+            app.wait_for_timeout(800)
+            assert campo_dias_insp.input_value() == "0", f"Dias de Inspeccion deberia fijarse en 0 con Inspeccion=N, quedo: {campo_dias_insp.input_value()!r}"
+            assert not campo_dias_insp.is_enabled(), "Dias de Inspeccion deberia quedar deshabilitado con Inspeccion=N"
+            capturar_paso(app, "casoA_inspeccion_N_dias_fijado_en_0", paso_excel=1)
+
+            # Caso B: Inspeccion = S con Dias = 0
+            campo_inspeccion.click()
+            campo_inspeccion.fill("")
+            campo_inspeccion.fill("S")
+            app.wait_for_timeout(800)
+            assert campo_dias_insp.is_enabled(), "Dias de Inspeccion deberia habilitarse con Inspeccion=S"
+            frame.locator("#corte").click()
+            frame.locator("#corte").fill("N")
+            app.wait_for_timeout(500)
+            capturar_paso(app, "casoB_inspeccion_S_dias_en_0", paso_excel=1)
+
+            frame.locator("button:has-text('Actualizar')").first.click()
+            app.wait_for_timeout(1200)
+            mensajeB = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+            assert mensajeB is not None and "complet" in mensajeB.lower(), (
+                f"Caso B (Inspeccion=S, Dias=0): se esperaba el mensaje de datos incompletos: {mensajeB!r}"
+            )
+            capturar_paso(app, "casoB_mensaje_dias_requeridos", paso_excel=2)
+
+            # Caso C: Inspeccion = X (invalido)
+            campo_inspeccion.click()
+            campo_inspeccion.fill("")
+            campo_inspeccion.type("X", delay=100)
+            frame.locator("#corte").click()
+            app.wait_for_timeout(1000)
+            mensajeC = cerrar_modal_confirmacion(frame, aceptar=True, timeout_ms=5000)
+            assert mensajeC is not None and "s o n" in mensajeC.lower(), (
+                f"Caso C (Inspeccion=X): se esperaba el mensaje de valor invalido S/N: {mensajeC!r}"
+            )
+            assert campo_inspeccion.input_value() == "", "El campo Inspeccion deberia limpiarse tras el valor invalido"
+            capturar_paso(app, "casoC_mensaje_valor_invalido_campo_limpio", paso_excel=3)
+
+            frame.locator("button:has-text('Cancelar')").first.click()
+            app.wait_for_timeout(500)
 
             capturar_paso(app, "estado_final_del_caso", paso_excel=max(_parsear_pasos_excel(PASOS_CASO), default=None))
             _CASO_OK = True
