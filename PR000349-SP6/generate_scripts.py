@@ -660,12 +660,22 @@ assert "facturaci" in mensaje.lower() and "cargo" in mensaje.lower(), f"Se esper
 ''')
 
 add("CP007", "app, frame = abrir_plan(page, paso_excel=2)", '''
+# RE-VALIDADO 22/10/2026: desarrollo reporto corregido el defecto original
+# ("Modificar" con el FormControl Codigo disabled se excluia del payload
+# Angular, el backend rechazaba con "El Codigo de Plan es obligatorio y
+# debe tener 2 caracteres." incluso con un Plan de 2 caracteres real,
+# porque el campo viajaba vacio). Se prueba explicitamente con un Plan
+# de 1 caracter ("A") Y uno de 2 caracteres ("01", fixture de CP003) por
+# pedido del equipo de desarrollo, ya que el mensaje original mencionaba
+# el largo de 2 caracteres - confirmado en vivo que AMBOS casos ahora
+# guardan correctamente ("Plan guardado.", Cuota actualizada en grilla).
 campo_encargo = frame.locator(".ant-select-selector").first
 campo_encargo.click()
 app.wait_for_timeout(500)
 frame.get_by_text("0001 — FONAVI", exact=True).click()
 app.wait_for_load_state("networkidle")
 app.wait_for_timeout(1500)
+
 fila_a = fila_por_codigo(frame, "A")
 fila_a.click()
 app.wait_for_timeout(500)
@@ -675,13 +685,42 @@ inputs = frame.locator("input")
 campo_valor = inputs.nth(3)
 campo_valor.fill("7.77")
 app.wait_for_timeout(500)
-capturar_paso(app, "valor_modificado", paso_excel=3)
+capturar_paso(app, "plan_1_caracter_valor_modificado", paso_excel=3)
 frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
 app.wait_for_timeout(2500)
-mensaje = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000)
-capturar_paso(app, "cambio_reflejado", paso_excel=5)
-fila_actualizada = fila_por_codigo(frame, "A")
-assert "7.77" in fila_actualizada.inner_text(), f"La Cuota deberia reflejar 7.77 tras modificar (mensaje visto: {mensaje!r})"
+mensaje_a = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000)
+assert mensaje_a is not None and "guardado" in mensaje_a.lower(), (
+    f"Se esperaba 'Plan guardado.' al modificar el Plan de 1 caracter: {mensaje_a!r}"
+)
+app.wait_for_timeout(1000)
+capturar_paso(app, "plan_1_caracter_cambio_reflejado", paso_excel=4)
+fila_a_actualizada = fila_por_codigo(frame, "A")
+assert "7.77" in fila_a_actualizada.inner_text(), (
+    f"La Cuota del Plan de 1 caracter deberia reflejar 7.77 tras modificar (mensaje visto: {mensaje_a!r})"
+)
+
+fila_01 = fila_por_codigo(frame, "01")
+fila_01.click()
+app.wait_for_timeout(500)
+frame.get_by_role("button", name=re.compile(r"Modificar", re.I)).click()
+app.wait_for_timeout(800)
+inputs = frame.locator("input")
+campo_valor_01 = inputs.nth(3)
+campo_valor_01.fill("6.66")
+app.wait_for_timeout(500)
+capturar_paso(app, "plan_2_caracteres_valor_modificado", paso_excel=5)
+frame.get_by_role("button", name=re.compile(r"Aceptar", re.I)).click()
+app.wait_for_timeout(2500)
+mensaje_01 = confirmar_dialogo_si_aparece(app, frame, timeout_ms=5000)
+assert mensaje_01 is not None and "guardado" in mensaje_01.lower(), (
+    f"Se esperaba 'Plan guardado.' al modificar el Plan de 2 caracteres: {mensaje_01!r}"
+)
+app.wait_for_timeout(1000)
+capturar_paso(app, "plan_2_caracteres_cambio_reflejado", paso_excel=6)
+fila_01_actualizada = fila_por_codigo(frame, "01")
+assert "6.66" in fila_01_actualizada.inner_text(), (
+    f"La Cuota del Plan de 2 caracteres deberia reflejar 6.66 tras modificar (mensaje visto: {mensaje_01!r})"
+)
 ''')
 
 add("CP008", "app, frame = abrir_plan(page, paso_excel=2)", '''
